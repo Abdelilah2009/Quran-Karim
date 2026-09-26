@@ -1,13 +1,25 @@
 import { useState } from 'react';
 import { STOCK_VIDEOS, VIDEO_CATEGORIES, type StockVideo } from '../data/videos';
 import { PEXELS_KEY_STORAGE, searchPexels } from '../lib/pexels';
+import type { SwitchMode } from '../lib/playlist';
 
 interface Props {
-  selectedId: string;
+  selectedIds: string[]; // in play order when `multi` is on
   loading: { id: string; progress: number } | null;
   onPick: (video: StockVideo) => void;
   onUpload: (file: File) => void;
+  multi: boolean;
+  onMultiChange: (multi: boolean) => void;
+  switchMode: SwitchMode;
+  onSwitchModeChange: (mode: SwitchMode) => void;
 }
+
+const SWITCH_OPTIONS: { value: SwitchMode; label: string }[] = [
+  { value: 'verse', label: 'Every verse' },
+  { value: 5, label: 'Every 5s' },
+  { value: 10, label: 'Every 10s' },
+  { value: 'even', label: 'Split evenly' },
+];
 
 function readKey(): string {
   try {
@@ -17,7 +29,16 @@ function readKey(): string {
   }
 }
 
-export function BackgroundPicker({ selectedId, loading, onPick, onUpload }: Props) {
+export function BackgroundPicker({
+  selectedIds,
+  loading,
+  onPick,
+  onUpload,
+  multi,
+  onMultiChange,
+  switchMode,
+  onSwitchModeChange,
+}: Props) {
   const [category, setCategory] = useState('all');
   const [apiKey, setApiKey] = useState(readKey);
   const [query, setQuery] = useState('');
@@ -49,6 +70,35 @@ export function BackgroundPicker({ selectedId, loading, onPick, onUpload }: Prop
 
   return (
     <div className="bg-picker">
+      <div className="multi-box">
+        <label className="switch">
+          <input type="checkbox" checked={multi} onChange={(e) => onMultiChange(e.target.checked)} />
+          <span className="switch-track" aria-hidden="true" />
+          <span>
+            <strong>Multiple clips</strong>
+            <small>Pick several videos. They play in the order you choose.</small>
+          </span>
+        </label>
+        {multi && (
+          <div className="field">
+            <span>Change clip</span>
+            <div className="segmented">
+              {SWITCH_OPTIONS.map((o) => (
+                <button key={String(o.value)} type="button" className={switchMode === o.value ? 'on' : ''}
+                  onClick={() => onSwitchModeChange(o.value)}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <p className="hint">
+              {selectedIds.length < 2
+                ? 'Select at least 2 videos below.'
+                : `${selectedIds.length} clips selected. Tap a numbered clip to remove it.`}
+            </p>
+          </div>
+        )}
+      </div>
+
       {results ? (
         <div className="results-bar">
           <span>
@@ -72,11 +122,13 @@ export function BackgroundPicker({ selectedId, loading, onPick, onUpload }: Prop
       <div className="thumbs">
         {videos.map((v) => {
           const isLoading = loading?.id === v.id;
+          const order = selectedIds.indexOf(v.id);
           return (
-            <button key={v.id} type="button" title={v.title}
-              className={`thumb ${selectedId === v.id ? 'selected' : ''}`}
+            <button key={v.id} type="button" title={v.title} aria-pressed={order >= 0}
+              className={`thumb ${order >= 0 ? 'selected' : ''}`}
               onClick={() => onPick(v)} disabled={!!loading}>
               <img src={v.thumb} alt={v.title} loading="lazy" />
+              {multi && order >= 0 && <span className="thumb-order">{order + 1}</span>}
               {isLoading && (
                 <span className="thumb-progress">
                   <span style={{ width: `${Math.round(loading.progress * 100)}%` }} />

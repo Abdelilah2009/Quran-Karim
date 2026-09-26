@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 
 export interface SelectOption<T extends string | number> {
   value: T;
@@ -14,6 +14,9 @@ interface Props<T extends string | number> {
   onChange: (value: T) => void;
   searchable?: boolean;
   placeholder?: string;
+  /** Extra control rendered at the end of each option (e.g. a listen button). */
+  renderAction?: (option: SelectOption<T>) => ReactNode;
+  onClose?: () => void;
 }
 
 export function Select<T extends string | number>({
@@ -23,6 +26,8 @@ export function Select<T extends string | number>({
   onChange,
   searchable,
   placeholder = 'Search',
+  renderAction,
+  onClose,
 }: Props<T>) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -50,6 +55,13 @@ export function Select<T extends string | number>({
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !open) onClose?.();
+    wasOpen.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // On open: highlight the current value and scroll it into view.
@@ -141,6 +153,11 @@ export function Select<T extends string | number>({
                 {o.prefix && <span className="opt-prefix">{o.prefix}</span>}
                 <span className="opt-label">{o.label}</span>
                 {o.hint && <span className="opt-hint" lang="ar">{o.hint}</span>}
+                {renderAction && (
+                  <span className="opt-action" onClick={(e) => e.stopPropagation()}>
+                    {renderAction(o)}
+                  </span>
+                )}
               </li>
             ))}
             {!filtered.length && <li className="empty">No match for “{query}”</li>}

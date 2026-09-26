@@ -9,7 +9,9 @@ import { getAudioContext, loadAyahAudio } from './lib/audio';
 import { playTimeline, recordReel, type Playback } from './lib/engine';
 import { createVideo, downloadVideo, seekToStart } from './lib/media';
 import { BASMALA, getAyat, getSurahs, type SurahMeta } from './lib/quran';
+import { clipAt, type SwitchMode } from './lib/playlist';
 import { drawFrame, H, W, type Background, type Style } from './lib/renderer';
+import { useReciterPreview } from './lib/useReciterPreview';
 import { buildTimeline, type Timeline } from './lib/timeline';
 
 const DEFAULT_STYLE: Style = {
@@ -37,6 +39,32 @@ const TABS: { id: Tab; label: string }[] = [
 // Overall export progress is split across phases.
 const SPLIT = { audio: 0.15, background: 0.2, recording: 0.97 };
 
+type LiveState = {
+  bg: Background;
+  timeline: Timeline | null;
+  multi: boolean;
+  clips: { id: string; el: HTMLVideoElement }[];
+  switchMode: SwitchMode;
+};
+
+// Resolve what to draw this frame. In multi-clip mode this also plays the
+// visible clips and pauses the rest, so off-screen videos don't drift.
+function backgroundAt(s: LiveState, t: number, playing: boolean): Background {
+  if (!s.multi || !s.clips.length) return s.bg;
+  if (s.clips.length === 1) {
+    const el = s.clips[0].el;
+    if (el.paused) void el.play();
+    return { kind: 'video', el };
+  }
+  const clip = clipAt(t, s.clips.length, s.switchMode, s.timeline, playing);
+  s.clips.forEach((c, i) => {
+    const visible = i === clip.index || (clip.mix > 0 && i === clip.next);
+    if (visible && c.el.paused) void c.el.play();
+    else if (!visible && !c.el.paused) c.el.pause();
+  });
+  return { kind: 'playlist', els: s.clips.map((c) => c.el), clip };
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('passage');
   const [surahs, setSurahs] = useState<SurahMeta[]>([]);
@@ -51,6 +79,9 @@ export default function App() {
   const [bg, setBg] = useState<Background>({ kind: 'gradient', colors: GRADIENTS[4].colors });
   const [bgId, setBgId] = useState('');
   const [bgLoading, setBgLoading] = useState<{ id: string; progress: number } | null>(null);
+  const [multi, setMulti] = useState(false);
+  const [switchMode, setSwitchMode] = useState<SwitchMode>('verse');
+  const [clips, setClips] = useState<{ id: string; el: HTMLVideoElement }[]>([]);
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [timelineKey, setTimelineKey] = useState('');
   const [status, setStatus] = useState('');
@@ -60,11 +91,21 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playbackRef = useRef<Playback | null>(null);
   const cancelledRef = useRef(false);
-  const live = useRef({ style, bg, timeline, surahName: '', reciterName: '' });
+  const live = useRef({ style, bg, timeline, surahName: '', reciterName: '', multi, clips, switchMode });
+  const reciterPreview = useReciterPreview(surah, from);
 
   const meta = surahs.find((s) => s.number === surah);
   const reciterMeta = RECITERS.find((r) => r.id === reciter)!;
-  live.current = { style, bg, timeline, surahName: meta?.name ?? '', reciterName: reciterMeta.name };
+  live.current = {
+    style,
+    bg,
+    timeline,
+    surahName: meta?.name ?? '',
+    reciterName: reciterMeta.name,
+    multi,
+    clips,
+    switchMode,
+  };
 
   const key = useMemo(
     () => JSON.stringify({ surah, from, to, reciter, duration, basmala, translation }),
@@ -91,20 +132,27 @@ export default function App() {
     const start = performance.now();
     const loop = () => {
       const s = live.current;
-      const t = playbackRef.current?.time() ?? 0;
-      drawFrame(ctx, t, s.timeline, s.bg, s.style, { surahName: s.surahName, reciterName: s.reciterName },
-        (performance.now() - start) / 1000);
+      const pb = playbackRef.current;
+      const t = pb?.time() ?? 0;
+      const bgT = (performance.now() - start) / 1000;
+      drawFrame(ctx, t, s.timeline, backgroundAt(s, pb ? Math.max(0, t) : bgT, !!pb), s.style,
+        { surahName: s.surahName, reciterName: s.reciterName }, bgT);
       raf = requestAnimationFrame(loop);
     };
     loop();
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  async function pickVideo(v: StockVideo) {
+  async function loadStock(v: StockVideo): Promise<HTMLVideoElement> {
     setBgLoading({ id: v.id, progress: 0 });
+    const url = await downloadVideo(v.src, (p) => setBgLoading({ id: v.id, progress: p }));
+    return createVideo(url);
+  }
+
+  async function pickVideo(v: StockVideo) {
+    if (multi) return toggleClip(v);
     try {
-      const url = await downloadVideo(v.src, (p) => setBgLoading({ id: v.id, progress: p }));
-      const el = await createVideo(url);
+      const el = await loadStock(v);
       const prev = live.current.bg;
       if (prev.kind === 'video') prev.el.pause();
       setBg({ kind: 'video', el });
@@ -116,7 +164,52 @@ export default function App() {
     }
   }
 
+  async function toggleClip(v: StockVideo) {
+    const existing = clips.find((c) => c.id === v.id);
+    if (existing) {
+      existing.el.pause();
+      setClips((cs) => cs.filter((c) => c.id !== v.id));
+      return;
+    }
+    try {
+      const el = await loadStock(v);
+      setClips((cs) => [...cs, { id: v.id, el }]);
+    } catch (e) {
+      setStatus((e as Error).message);
+    } finally {
+      setBgLoading(null);
+    }
+  }
+
+  function changeMulti(on: boolean) {
+    setMulti(on);
+    if (on) {
+      setClips(bg.kind === 'video' && bgId && bgId !== 'upload' ? [{ id: bgId, el: bg.el }] : []);
+      return;
+    }
+    const [first, ...rest] = clips;
+    rest.forEach((c) => c.el.pause());
+    if (first) {
+      setBg({ kind: 'video', el: first.el });
+      setBgId(first.id);
+      void first.el.play();
+    }
+    setClips([]);
+  }
+
+  // Rewind every background video so preview and export start from frame 0.
+  async function rewindBackground() {
+    if (multi && clips.length) {
+      await Promise.all(clips.map((c) => seekToStart(c.el)));
+      clips.forEach((c, i) => (i === 0 ? void c.el.play() : c.el.pause()));
+    } else if (bg.kind === 'video') {
+      await seekToStart(bg.el);
+      void bg.el.play();
+    }
+  }
+
   async function onUpload(file: File) {
+    if (multi) changeMulti(false);
     const url = URL.createObjectURL(file);
     setBgId('upload');
     if (file.type.startsWith('video/')) {
@@ -190,7 +283,7 @@ export default function App() {
     setBusy('loading');
     try {
       const tl = await prepare();
-      if (bg.kind === 'video') await seekToStart(bg.el);
+      await rewindBackground();
       const pb = playTimeline(tl);
       playbackRef.current = pb;
       setBusy('playing');
@@ -214,10 +307,7 @@ export default function App() {
 
       setJob({ phase: 'background', progress: SPLIT.audio });
       await document.fonts.ready;
-      if (bg.kind === 'video') {
-        await seekToStart(bg.el);
-        void bg.el.play();
-      }
+      await rewindBackground();
       if (cancelledRef.current) throw new Error('cancelled');
 
       const { blob, ext } = await recordReel(canvasRef.current!, tl, (pb) => {
@@ -306,9 +396,31 @@ export default function App() {
                 Start with the Basmala
               </label>
 
-              <Select label="Reciter" value={reciter} onChange={setReciter} searchable
-                placeholder="Search reciters"
-                options={RECITERS.map((r) => ({ value: r.id, label: r.latin, hint: r.name }))} />
+              <Select label="Reciter" value={reciter} searchable placeholder="Search reciters"
+                onChange={(id) => {
+                  reciterPreview.stop();
+                  setReciter(id);
+                }}
+                onClose={reciterPreview.stop}
+                options={RECITERS.map((r) => ({ value: r.id, label: r.latin, hint: r.name }))}
+                renderAction={(o) => {
+                  const st = reciterPreview.state?.reciter === o.value ? reciterPreview.state.status : null;
+                  return (
+                    <button type="button" className={`listen ${st ?? ''}`}
+                      aria-label={st ? `Stop ${o.label}` : `Listen to ${o.label}`}
+                      title={st ? 'Stop' : 'Listen'}
+                      onClick={() => reciterPreview.toggle(o.value)}>
+                      {st === 'playing' ? (
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" /></svg>
+                      ) : st === 'loading' ? (
+                        <span className="spinner" aria-hidden="true" />
+                      ) : (
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7.5-4.5z" /></svg>
+                      )}
+                    </button>
+                  );
+                }} />
+              <p className="hint">Press play to hear verse {from} of this surah before choosing.</p>
 
               <div className="field">
                 <span>Reel length</span>
@@ -326,7 +438,16 @@ export default function App() {
 
           {tab === 'background' && (
             <>
-              <BackgroundPicker selectedId={bgId} loading={bgLoading} onPick={pickVideo} onUpload={onUpload} />
+              <BackgroundPicker
+                selectedIds={multi ? clips.map((c) => c.id) : [bgId]}
+                loading={bgLoading}
+                onPick={pickVideo}
+                onUpload={onUpload}
+                multi={multi}
+                onMultiChange={changeMulti}
+                switchMode={switchMode}
+                onSwitchModeChange={setSwitchMode}
+              />
               <label className="field">
                 <span>Dim background ({Math.round(style.overlay * 100)}%)</span>
                 <input type="range" min={0} max={0.85} step={0.05} value={style.overlay}

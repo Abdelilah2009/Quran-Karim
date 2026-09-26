@@ -1,3 +1,4 @@
+import type { ClipState } from './playlist';
 import { toArabicDigits } from './quran';
 import type { Segment, Timeline } from './timeline';
 
@@ -22,7 +23,8 @@ export interface Style {
 export type Background =
   | { kind: 'gradient'; colors: [string, string] }
   | { kind: 'video'; el: HTMLVideoElement }
-  | { kind: 'image'; el: HTMLImageElement };
+  | { kind: 'image'; el: HTMLImageElement }
+  | { kind: 'playlist'; els: HTMLVideoElement[]; clip: ClipState };
 
 export interface Meta {
   surahName: string;
@@ -74,7 +76,18 @@ function drawBackground(ctx: CanvasRenderingContext2D, bg: Background, t: number
   ctx.fillRect(0, 0, W, H);
   if (bg.kind === 'gradient') drawGradient(ctx, bg.colors, t);
   else if (bg.kind === 'video') drawCover(ctx, bg.el, bg.el.videoWidth, bg.el.videoHeight);
-  else drawCover(ctx, bg.el, bg.el.naturalWidth, bg.el.naturalHeight);
+  else if (bg.kind === 'image') drawCover(ctx, bg.el, bg.el.naturalWidth, bg.el.naturalHeight);
+  else {
+    const cur = bg.els[bg.clip.index];
+    drawCover(ctx, cur, cur.videoWidth, cur.videoHeight);
+    if (bg.clip.mix > 0) {
+      const next = bg.els[bg.clip.next];
+      ctx.save();
+      ctx.globalAlpha = bg.clip.mix;
+      drawCover(ctx, next, next.videoWidth, next.videoHeight);
+      ctx.restore();
+    }
+  }
 }
 
 // ---------- text layout ----------
