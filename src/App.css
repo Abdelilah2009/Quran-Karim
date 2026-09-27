@@ -30,7 +30,7 @@ button, input, select { font: inherit; color: inherit; }
 
 .app {
   display: grid;
-  grid-template-columns: 480px 1fr;
+  grid-template-columns: minmax(480px, 1fr) minmax(0, 1fr); /* panel takes half the page */
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
@@ -46,6 +46,7 @@ button, input, select { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  container-type: inline-size; /* grids below add columns as the panel widens */
 }
 
 .brand {
@@ -673,3 +674,20 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
 .surprise { color: var(--gilt); }
 .surprise small { color: var(--sage); }
 .font span { line-height: 1.9; display: block; }
+
+/* ---------- wide panel: more columns instead of stretched cards ---------- */
+
+@container (min-width: 620px) {
+  .template-grid, .thumbs, .fonts { grid-template-columns: repeat(4, 1fr); }
+  .counter-styles, .preset-grid { grid-template-columns: repeat(3, 1fr); }
+  .tab-body { padding: 26px 32px 36px; }
+  .step-nav { padding: 14px 32px; }
+}
+@container (min-width: 760px) {
+  .template-grid, .thumbs { grid-template-columns: repeat(5, 1fr); }
+  .hook-styles { grid-template-columns: repeat(8, 1fr); }
+}
+
+/* Absolutely positioned helpers (visually hidden labels, hidden inputs) stay
+   inside the scrolling panel instead of stretching the page. */
+.tab-body { position: relative; }
