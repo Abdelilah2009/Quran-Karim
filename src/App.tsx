@@ -20,6 +20,7 @@ import {
   FORMATS,
   type Background,
   type Format,
+  type HookPosition,
   type HookStyle,
   type Layer,
   type Meta,
@@ -55,6 +56,7 @@ const DEFAULT_STYLE: Style = {
   template: 'classic',
   hook: 'قاوم التعفن الدماغي',
   hookStyle: 'plain',
+  hookPosition: 'center',
 };
 
 const OUTRO_TEXT = 'صدق الله العظيم';
@@ -84,6 +86,15 @@ const HOOK_STYLES: { id: HookStyle; label: string }[] = [
   { id: 'marker', label: 'Marker' },
   { id: 'glow', label: 'Glow' },
   { id: 'outline', label: 'Outline' },
+  { id: 'bubble', label: 'Bubble' },
+  { id: '3d', label: '3D' },
+  { id: 'gradient', label: 'Gradient' },
+];
+
+const HOOK_POSITIONS: { id: HookPosition; label: string }[] = [
+  { id: 'top', label: 'Top' },
+  { id: 'center', label: 'Center' },
+  { id: 'above', label: 'Above verse' },
 ];
 
 const TEMPLATE_FONTS = ['700 40px "Noto Kufi Arabic"', '700 40px Figtree', '40px "Noto Naskh Arabic"', 'italic 40px Figtree'];
@@ -749,6 +760,19 @@ export default function App() {
                             <span className={`hook-sample ${hs.id}`} lang="ar"
                               style={{ '--accent': style.accentColor } as React.CSSProperties}>قاوم</span>
                             <small>{hs.label}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {style.template === 'challenge' && (
+                    <div className="field">
+                      <span>Headline position</span>
+                      <div className="segmented">
+                        {HOOK_POSITIONS.map((hp) => (
+                          <button key={hp.id} type="button" className={style.hookPosition === hp.id ? 'on' : ''}
+                            onClick={() => set('hookPosition', hp.id)}>
+                            {hp.label}
                           </button>
                         ))}
                       </div>

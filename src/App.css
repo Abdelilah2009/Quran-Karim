@@ -597,3 +597,8 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
 .hook-sample.marker { background: var(--accent); color: #111; }
 .hook-sample.glow { color: var(--accent); text-shadow: 0 0 8px var(--accent), 0 0 2px var(--accent); }
 .hook-sample.outline { -webkit-text-stroke: 3px #000; paint-order: stroke fill; }
+.hook-styles { grid-template-columns: repeat(4, 1fr); }
+.hook-sample.bubble { background: #fff; color: #111; border-radius: 999px; padding: 0 10px; position: relative; }
+.hook-sample.bubble::after { content: ''; position: absolute; left: 50%; bottom: -5px; margin-left: -5px; border: 5px solid transparent; border-bottom: 0; border-top-color: #fff; }
+.hook-sample.\33 d { text-shadow: 1px 1px 0 var(--accent), 2px 2px 0 var(--accent), 3px 3px 0 var(--accent), 5px 5px 3px rgba(0, 0, 0, 0.5); }
+.hook-sample.gradient { background: linear-gradient(#fff, var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6)); }
