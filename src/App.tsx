@@ -30,6 +30,7 @@ import {
   type TextAnimation,
 } from './lib/renderer';
 import { useReciterPreview } from './lib/useReciterPreview';
+import { clearSession, loadSession, saveSession } from './lib/session';
 import { cardsFor, getTemplate, INTRO, OUTRO, TEMPLATES, type Template } from './lib/templates';
 import { buildTimeline, splitIntoParts, type Timeline, type TimelineItem } from './lib/timeline';
 import { getSurahWords, hasWordTimings } from './lib/words';
@@ -213,28 +214,34 @@ function download(url: string, fileName: string) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('passage');
+  const [saved] = useState(loadSession); // last session, read once
+  const [tab, setTab] = useState<Tab>(() => (TABS.some((t) => t.id === saved?.tab) ? (saved!.tab as Tab) : 'passage'));
   const [surahs, setSurahs] = useState<SurahMeta[]>([]);
-  const [surah, setSurah] = useState(1);
-  const [from, setFrom] = useState(1);
-  const [to, setTo] = useState(7);
-  const [reciter, setReciter] = useState(RECITERS[0].id);
-  const [duration, setDuration] = useState<number | null>(60);
-  const [basmala, setBasmala] = useState(true);
-  const [translation, setTranslation] = useState('');
-  const [style, setStyle] = useState<Style>(DEFAULT_STYLE);
+  const [surah, setSurah] = useState(saved?.surah ?? 1);
+  const [from, setFrom] = useState(saved?.from ?? 1);
+  const [to, setTo] = useState(saved?.to ?? 7);
+  const [reciter, setReciter] = useState(
+    RECITERS.some((r) => r.id === saved?.reciter) ? saved!.reciter : RECITERS[0].id,
+  );
+  const [duration, setDuration] = useState<number | null>(saved ? saved.duration : 60);
+  const [basmala, setBasmala] = useState(saved?.basmala ?? true);
+  const [translation, setTranslation] = useState(saved?.translation ?? '');
+  const [style, setStyle] = useState<Style>(() => ({ ...DEFAULT_STYLE, ...saved?.style }));
   const [bg, setBg] = useState<Source>({ kind: 'gradient', colors: GRADIENTS[4].colors });
   const [bgId, setBgId] = useState('');
   const [bgLoading, setBgLoading] = useState<{ id: string; progress: number } | null>(null);
   const [multi, setMulti] = useState(false);
-  const [switchMode, setSwitchMode] = useState<SwitchMode>('verse');
+  const [switchMode, setSwitchMode] = useState<SwitchMode>(saved?.switchMode ?? 'verse');
   const [clips, setClips] = useState<{ id: string; el: HTMLVideoElement }[]>([]);
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [timelineKey, setTimelineKey] = useState('');
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState<'' | 'loading' | 'playing' | 'exporting'>('');
   const [job, setJob] = useState<ExportJob | null>(null);
-  const [series, setSeries] = useState(false);
+  const [series, setSeries] = useState(saved?.series ?? false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const restoring = useRef(true);
   const [safeZones, setSafeZones] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -271,9 +278,47 @@ export default function App() {
     getSurahs()
       .then(setSurahs)
       .catch((e) => setStatus(e.message));
-    void pickVideo(STOCK_VIDEOS[0]);
+    // Bring back the last background; uploads can't be restored, so they fall back to the default clip.
+    const find = (id: string) => STOCK_VIDEOS.find((v) => v.id === id);
+    const restore = async () => {
+      const list = (saved?.multi ? saved.clipIds : []).map(find).filter((v): v is StockVideo => !!v);
+      if (list.length) {
+        setMulti(true);
+        await randomClips(list);
+      } else {
+        setMulti(false);
+        await pickStock(find(saved?.bgId ?? '') ?? STOCK_VIDEOS[0]);
+      }
+      restoring.current = false;
+    };
+    void restore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Autosave: everything except uploads is written to this browser shortly after each change.
+  const clipIds = clips.map((c) => c.id).join(',');
+  useEffect(() => {
+    if (restoring.current) return;
+    const id = window.setTimeout(() => {
+      const ok = saveSession({
+        v: 1, tab, surah, from, to, reciter, duration, basmala, translation, series, style,
+        bgId, multi, switchMode, clipIds: clipIds ? clipIds.split(',') : [],
+      });
+      if (ok) setSavedAt(Date.now());
+    }, 500);
+    return () => clearTimeout(id);
+  }, [tab, surah, from, to, reciter, duration, basmala, translation, series, style, bgId, multi, switchMode, clipIds]);
+
+  function startOver() {
+    if (!confirmReset) {
+      setConfirmReset(true);
+      window.setTimeout(() => setConfirmReset(false), 3000);
+      return;
+    }
+    restoring.current = true; // don't let the autosave write the old state back
+    clearSession();
+    location.reload();
+  }
 
   useEffect(() => {
     void document.fonts.load(`40px "${style.fontFamily}"`, 'بسم الله');
@@ -311,6 +356,10 @@ export default function App() {
 
   async function pickVideo(v: StockVideo) {
     if (multi) return toggleClip(v);
+    return pickStock(v);
+  }
+
+  async function pickStock(v: StockVideo) {
     try {
       const el = await loadStock(v);
       const prev = live.current.bg;
@@ -658,6 +707,7 @@ export default function App() {
   const set = <K extends keyof Style>(k: K, v: Style[K]) => setStyle((s) => ({ ...s, [k]: v }));
   const maxAyah = meta?.numberOfAyahs ?? 7;
   const fmt = FORMATS[style.format];
+  const stepIndex = TABS.findIndex((t) => t.id === tab);
 
   return (
     <div className="app">
@@ -668,12 +718,21 @@ export default function App() {
             <h1>Quran Studio</h1>
             <p>Recitation videos for Reels, TikTok and Shorts</p>
           </div>
+          <div className="session">
+            <span className={savedAt ? 'saved on' : 'saved'} aria-live="polite">
+              {savedAt ? 'Saved' : 'Autosave on'}
+            </span>
+            <button type="button" className="link quiet" onClick={startOver}>
+              {confirmReset ? 'Click again to reset' : 'Start over'}
+            </button>
+          </div>
         </header>
 
-        <nav className="tabs" role="tablist">
-          {TABS.map((t) => (
+        <nav className="tabs" role="tablist" aria-label="Steps">
+          {TABS.map((t, i) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id}
               className={tab === t.id ? 'tab on' : 'tab'} onClick={() => setTab(t.id)}>
+              <span className="step-no">{i + 1}</span>
               {t.label}
             </button>
           ))}
@@ -1029,6 +1088,22 @@ export default function App() {
             </>
           )}
         </div>
+
+        <footer className="step-nav">
+          <button type="button" className="btn" disabled={stepIndex === 0}
+            onClick={() => setTab(TABS[stepIndex - 1].id)}>
+            Back
+          </button>
+          {stepIndex < TABS.length - 1 ? (
+            <button type="button" className="btn primary" onClick={() => setTab(TABS[stepIndex + 1].id)}>
+              Next: {TABS[stepIndex + 1].label}
+            </button>
+          ) : (
+            <button type="button" className="btn primary" onClick={exportReel} disabled={busy !== ''}>
+              {series && duration !== null ? 'Export series' : 'Export video'}
+            </button>
+          )}
+        </footer>
       </aside>
 
       <main className="stage">
