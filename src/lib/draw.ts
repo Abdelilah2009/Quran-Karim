@@ -5,7 +5,14 @@ export type Format = '9:16' | '4:5' | '1:1' | '16:9';
 export type TextAnimation = 'fade' | 'slide' | 'zoom' | 'reveal';
 export type HookStyle = 'plain' | 'box' | 'marker' | 'glow' | 'outline' | 'bubble' | '3d' | 'gradient';
 export type HookPosition = 'top' | 'center' | 'above';
-export type CounterStyle = 'bar' | 'whatsapp' | 'instagram' | 'telegram' | 'imessage' | 'player' | 'none';
+export type CounterStyle =
+  | 'bar'
+  | 'whatsapp'
+  | 'instagram'
+  | 'telegram'
+  | 'imessage'
+  | 'player'
+  | 'none';
 
 export const FORMATS: Record<Format, { w: number; h: number; hint: string }> = {
   '9:16': { w: 1080, h: 1920, hint: 'Reels, TikTok, Shorts' },

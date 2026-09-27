@@ -101,7 +101,7 @@ const COUNTER_STYLES: { id: CounterStyle; label: string }[] = [
   { id: 'imessage', label: 'iMessage' },
   { id: 'player', label: 'Player' },
   { id: 'bar', label: 'Bar' },
-  { id: 'none', label: 'None' },
+  { id: 'none', label: 'No timer' },
 ];
 
 const HOOK_POSITIONS: { id: HookPosition; label: string }[] = [
@@ -748,13 +748,22 @@ export default function App() {
 
           {tab === 'template' && (
             <>
+              <section className="group">
+                <TemplatePicker style={style} timeline={timeline}
+                  meta={{ surahName: meta?.name ?? '', reciterName: reciterMeta.name }}
+                  background={() => stillBackground(live.current)}
+                  onPick={pickTemplate} />
+                <p className="hint">{getTemplate(style.template).description}</p>
+              </section>
+
               {HOOKS[style.template] && (
-                <div className="field">
+                <section className="group">
+                  <h2>Headline</h2>
                   <label className="field">
-                    <span>Headline</span>
+                    <span>Text</span>
                     <input dir="auto" value={style.hook} onChange={(e) => set('hook', e.target.value)} />
                   </label>
-                  <div className="chips">
+                  <div className="chip-row" aria-label="Ready-made headlines">
                     {HOOKS[style.template].map((hk) => (
                       <button key={hk} type="button" dir="auto" className={style.hook === hk ? 'chip on' : 'chip'}
                         onClick={() => set('hook', hk)}>
@@ -763,59 +772,56 @@ export default function App() {
                     ))}
                   </div>
                   {style.template === 'challenge' && (
-                    <div className="field">
-                      <span>Headline style</span>
-                      <div className="hook-styles" role="radiogroup" aria-label="Headline style">
-                        {HOOK_STYLES.map((hs) => (
-                          <button key={hs.id} type="button" role="radio" aria-checked={style.hookStyle === hs.id}
-                            className={style.hookStyle === hs.id ? 'hook-style on' : 'hook-style'}
-                            onClick={() => set('hookStyle', hs.id)}>
-                            <span className={`hook-sample ${hs.id}`} lang="ar"
-                              style={{ '--accent': style.accentColor } as React.CSSProperties}>قاوم</span>
-                            <small>{hs.label}</small>
-                          </button>
-                        ))}
+                    <>
+                      <div className="field">
+                        <span>Look</span>
+                        <div className="hook-styles" role="radiogroup" aria-label="Headline look">
+                          {HOOK_STYLES.map((hs) => (
+                            <button key={hs.id} type="button" role="radio" aria-checked={style.hookStyle === hs.id}
+                              className={style.hookStyle === hs.id ? 'hook-style on' : 'hook-style'}
+                              onClick={() => set('hookStyle', hs.id)}>
+                              <span className={`hook-sample ${hs.id}`} lang="ar"
+                                style={{ '--accent': style.accentColor } as React.CSSProperties}>قاوم</span>
+                              <small>{hs.label}</small>
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  {style.template === 'challenge' && (
-                    <div className="field">
-                      <span>Counter style</span>
-                      <div className="counter-styles" role="radiogroup" aria-label="Counter style">
-                        {COUNTER_STYLES.map((cs) => (
-                          <button key={cs.id} type="button" role="radio" aria-checked={style.counterStyle === cs.id}
-                            className={style.counterStyle === cs.id ? 'hook-style on' : 'hook-style'}
-                            onClick={() => set('counterStyle', cs.id)}>
-                            {cs.id === 'none' ? (
-                              <span className="counter-none">No counter</span>
-                            ) : (
-                              <CounterPreview style={{ ...style, counterStyle: cs.id }} />
-                            )}
-                            <small>{cs.label}</small>
-                          </button>
-                        ))}
+                      <div className="field">
+                        <span>Position</span>
+                        <div className="segmented">
+                          {HOOK_POSITIONS.map((hp) => (
+                            <button key={hp.id} type="button" className={style.hookPosition === hp.id ? 'on' : ''}
+                              onClick={() => set('hookPosition', hp.id)}>
+                              {hp.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    </>
                   )}
-                  {style.template === 'challenge' && (
-                    <div className="field">
-                      <span>Headline position</span>
-                      <div className="segmented">
-                        {HOOK_POSITIONS.map((hp) => (
-                          <button key={hp.id} type="button" className={style.hookPosition === hp.id ? 'on' : ''}
-                            onClick={() => set('hookPosition', hp.id)}>
-                            {hp.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                </section>
               )}
-              <TemplatePicker style={style} timeline={timeline}
-                meta={{ surahName: meta?.name ?? '', reciterName: reciterMeta.name }}
-                background={() => stillBackground(live.current)}
-                onPick={pickTemplate} />
+
+              {style.template === 'challenge' && (
+                <section className="group">
+                  <h2>Timer</h2>
+                  <div className="counter-styles" role="radiogroup" aria-label="Timer style">
+                    {COUNTER_STYLES.map((cs) => (
+                      <button key={cs.id} type="button" role="radio" aria-checked={style.counterStyle === cs.id}
+                        className={style.counterStyle === cs.id ? 'hook-style on' : 'hook-style'}
+                        onClick={() => set('counterStyle', cs.id)}>
+                        {cs.id === 'none' ? (
+                          <span className="counter-none">Off</span>
+                        ) : (
+                          <CounterPreview style={{ ...style, counterStyle: cs.id }} />
+                        )}
+                        <small>{cs.label}</small>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
             </>
           )}
 

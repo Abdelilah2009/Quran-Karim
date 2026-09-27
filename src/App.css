@@ -550,25 +550,27 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
 
 /* ---------- templates ---------- */
 
-.template-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.template-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .template-card {
   display: grid;
-  gap: 4px;
-  padding: 0 0 10px;
+  padding: 0;
   background: var(--binding-deep);
   border: 1px solid var(--leaf-raised);
   border-radius: var(--radius-sm);
   overflow: hidden;
   cursor: pointer;
-  text-align: left;
   color: var(--paper);
   transition: border-color 0.15s;
 }
-.template-card canvas { display: block; width: 100%; height: auto; background: #000; margin-bottom: 6px; }
+.template-card canvas { display: block; width: 100%; height: auto; background: #000; }
 .template-card:hover { border-color: var(--gilt-soft); }
 .template-card.on { border-color: var(--gilt); box-shadow: 0 0 0 1px var(--gilt); }
-.template-name { padding: 0 10px; font-size: 14px; font-weight: 600; }
-.template-card small { padding: 0 10px; font-size: 12px; line-height: 1.35; color: var(--sage); }
+.template-card.on .template-name { color: var(--gilt); }
+.template-name { padding: 7px 8px; font-size: 13px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Ready-made headlines: one scrollable row instead of a wrapping pile. */
+.chip-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-top: -4px; scrollbar-width: thin; }
+.chip-row .chip { flex: none; white-space: nowrap; }
 
 .surprise { display: grid; gap: 2px; justify-items: start; text-align: left; padding: 12px 16px; }
 .surprise small { font-weight: 400; font-size: 12px; color: var(--sage); }
@@ -605,7 +607,11 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
 
 /* ---------- counter styles (Challenge) ---------- */
 
-.counter-styles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.counter-styles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .counter-styles .hook-style { padding: 8px 6px 8px; }
 .counter-preview { display: block; width: 100%; height: auto; }
 .counter-none { display: grid; place-items: center; width: 100%; aspect-ratio: 1080 / 260; font-size: 13px; color: var(--sage); }
+
+/* Keep wide children (scrolling chip rows, canvases) from stretching the panel. */
+.tab-body { grid-template-columns: minmax(0, 1fr); }
+.group, .field { min-width: 0; }

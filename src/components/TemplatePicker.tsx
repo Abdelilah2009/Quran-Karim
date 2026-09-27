@@ -11,7 +11,7 @@ interface Props {
   onPick: (template: Template) => void;
 }
 
-const THUMB_W = 176;
+const THUMB_W = 140;
 
 /** Grid of templates, each previewed with the user's own verse, background and colors. */
 export function TemplatePicker({ style, timeline, meta, background, onPick }: Props) {
@@ -46,12 +46,11 @@ export function TemplatePicker({ style, timeline, meta, background, onPick }: Pr
       {TEMPLATES.map((tpl, i) => {
         const on = tpl.id === style.template;
         return (
-          <button key={tpl.id} type="button" role="radio" aria-checked={on}
+          <button key={tpl.id} type="button" role="radio" aria-checked={on} title={tpl.description}
             className={on ? 'template-card on' : 'template-card'} onClick={() => onPick(tpl)}>
             <canvas ref={(el) => { canvases.current[i] = el; }} width={THUMB_W * 2} height={thumbH * 2}
               style={{ aspectRatio: `${w} / ${h}` }} aria-hidden="true" />
             <span className="template-name">{tpl.name}</span>
-            <small>{tpl.description}</small>
           </button>
         );
       })}
