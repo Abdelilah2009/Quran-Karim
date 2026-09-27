@@ -615,3 +615,8 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
 /* Keep wide children (scrolling chip rows, canvases) from stretching the panel. */
 .tab-body { grid-template-columns: minmax(0, 1fr); }
 .group, .field { min-width: 0; }
+
+.random-row { display: flex; gap: 8px; align-items: stretch; }
+.random-row .btn { flex: 1; }
+.random-row .segmented { flex: none; }
+.random-row .segmented button { min-width: 40px; }

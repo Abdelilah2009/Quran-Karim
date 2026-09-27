@@ -341,6 +341,21 @@ export default function App() {
     }
   }
 
+  // Swap the playlist for a random set, loading one clip after another.
+  async function randomClips(list: StockVideo[]) {
+    clips.forEach((c) => c.el.pause());
+    setClips([]);
+    for (const v of list) {
+      try {
+        const el = await loadStock(v);
+        setClips((cs) => [...cs, { id: v.id, el }]);
+      } catch (e) {
+        setStatus((e as Error).message);
+      }
+    }
+    setBgLoading(null);
+  }
+
   function changeMulti(on: boolean) {
     setMulti(on);
     if (on) {
@@ -836,6 +851,7 @@ export default function App() {
                 onMultiChange={changeMulti}
                 switchMode={switchMode}
                 onSwitchModeChange={setSwitchMode}
+                onRandom={randomClips}
               />
               <label className="field">
                 <span>Dim background ({Math.round(style.overlay * 100)}%)</span>

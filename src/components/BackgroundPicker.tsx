@@ -12,7 +12,10 @@ interface Props {
   onMultiChange: (multi: boolean) => void;
   switchMode: SwitchMode;
   onSwitchModeChange: (mode: SwitchMode) => void;
+  onRandom: (videos: StockVideo[]) => void; // replace the clips with these, in order
 }
+
+const RANDOM_COUNTS = [3, 5, 8];
 
 const SWITCH_OPTIONS: { value: SwitchMode; label: string }[] = [
   { value: 'verse', label: 'Every verse' },
@@ -38,7 +41,9 @@ export function BackgroundPicker({
   onMultiChange,
   switchMode,
   onSwitchModeChange,
+  onRandom,
 }: Props) {
+  const [randomCount, setRandomCount] = useState(5);
   const [category, setCategory] = useState('all');
   const [apiKey, setApiKey] = useState(readKey);
   const [query, setQuery] = useState('');
@@ -90,10 +95,31 @@ export function BackgroundPicker({
                 </button>
               ))}
             </div>
+            <div className="random-row">
+              <button type="button" className="btn" disabled={!!loading || videos.length < 2}
+                onClick={() => {
+                  const pool = [...videos];
+                  for (let i = pool.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [pool[i], pool[j]] = [pool[j], pool[i]];
+                  }
+                  onRandom(pool.slice(0, Math.min(randomCount, pool.length)));
+                }}>
+                Pick {randomCount} random clips
+              </button>
+              <div className="segmented" aria-label="How many random clips">
+                {RANDOM_COUNTS.map((n) => (
+                  <button key={n} type="button" className={randomCount === n ? 'on' : ''} onClick={() => setRandomCount(n)}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
             <p className="hint">
               {selectedIds.length < 2
                 ? 'Select at least 2 videos below.'
-                : `${selectedIds.length} clips selected. Tap a numbered clip to remove it.`}
+                : `${selectedIds.length} clips selected. Tap a numbered clip to remove it.`}{' '}
+              Random picks come from the category shown below.
             </p>
           </div>
         )}
