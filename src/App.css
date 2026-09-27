@@ -24,7 +24,9 @@ button, input, select { font: inherit; color: inherit; }
 .app {
   display: grid;
   grid-template-columns: 420px 1fr;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* ---------- panel ---------- */
@@ -34,7 +36,7 @@ button, input, select { font: inherit; color: inherit; }
   border-right: 1px solid var(--gilt-soft);
   display: flex;
   flex-direction: column;
-  max-height: 100vh;
+  min-height: 0;
 }
 
 .brand {
@@ -81,6 +83,7 @@ button, input, select { font: inherit; color: inherit; }
 
 .tab-body {
   flex: 1;
+  min-height: 0;
   padding: 22px 24px 32px;
   overflow-y: auto;
   display: grid;
@@ -269,7 +272,7 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
   border-radius: var(--radius-md);
   background: var(--binding-deep);
 }
-.switch { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.switch { position: relative; display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
 .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .switch-track {
   flex: none;
@@ -357,6 +360,7 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
 .thumb-progress span { display: block; height: 100%; background: var(--gilt); transition: width 0.15s; }
 
 .upload {
+  position: relative;
   display: block;
   border: 1px dashed var(--gilt-soft);
   border-radius: var(--radius-sm);
@@ -401,6 +405,8 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
 /* ---------- stage: the preview sits in a gilt mihrab arch ---------- */
 
 .stage {
+  min-height: 0;
+  overflow: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -514,8 +520,10 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
 }
 
 @media (max-width: 900px) {
-  .app { grid-template-columns: 1fr; }
-  .panel { max-height: none; border-right: none; border-bottom: 1px solid var(--gilt-soft); }
+  .app { grid-template-columns: 1fr; height: auto; overflow: visible; }
+  .panel { border-right: none; border-bottom: 1px solid var(--gilt-soft); }
+  .tab-body { overflow: visible; }
+  .stage { overflow: visible; }
   .stage { order: -1; padding: 24px 16px; }
   .mihrab { --h: auto; height: auto; width: min(100%, 320px); }
   .thumbs { grid-template-columns: repeat(3, 1fr); }
