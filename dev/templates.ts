@@ -14,7 +14,7 @@ const base: Style = {
   position: 'center', translationFont: 'Figtree, system-ui, sans-serif', showTranslation: true, showHeader: true,
   showAyahNumber: true, showProgress: true, watermark: '@quranstudio', animation: 'fade', karaoke: false,
   highlightColor: '#f2c96b', format, intro: true, outro: 'صدق الله العظيم', blur: 0, kenBurns: false,
-  template: q.get('template') ?? 'classic', hook: 'قاوم التعفن الدماغي', hookStyle: 'plain', hookPosition: 'center',
+  template: q.get('template') ?? 'classic', hook: 'قاوم التعفن الدماغي', hookStyle: 'plain', hookPosition: 'center', counterStyle: 'whatsapp',
 };
 const template = getTemplate(base.template);
 const style: Style = { ...base, ...template.defaults, ...JSON.parse(q.get('style') ?? '{}'), format };

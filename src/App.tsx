@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import { BackgroundPicker } from './components/BackgroundPicker';
+import { CounterPreview } from './components/CounterPreview';
 import { CaptionBox } from './components/CaptionBox';
 import { ExportDialog, type ExportJob } from './components/ExportDialog';
 import { Presets } from './components/Presets';
@@ -20,6 +21,7 @@ import {
   FORMATS,
   type Background,
   type Format,
+  type CounterStyle,
   type HookPosition,
   type HookStyle,
   type Layer,
@@ -57,6 +59,7 @@ const DEFAULT_STYLE: Style = {
   hook: 'قاوم التعفن الدماغي',
   hookStyle: 'plain',
   hookPosition: 'center',
+  counterStyle: 'whatsapp',
 };
 
 const OUTRO_TEXT = 'صدق الله العظيم';
@@ -89,6 +92,16 @@ const HOOK_STYLES: { id: HookStyle; label: string }[] = [
   { id: 'bubble', label: 'Bubble' },
   { id: '3d', label: '3D' },
   { id: 'gradient', label: 'Gradient' },
+];
+
+const COUNTER_STYLES: { id: CounterStyle; label: string }[] = [
+  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'instagram', label: 'Instagram' },
+  { id: 'telegram', label: 'Telegram' },
+  { id: 'imessage', label: 'iMessage' },
+  { id: 'player', label: 'Player' },
+  { id: 'bar', label: 'Bar' },
+  { id: 'none', label: 'None' },
 ];
 
 const HOOK_POSITIONS: { id: HookPosition; label: string }[] = [
@@ -760,6 +773,25 @@ export default function App() {
                             <span className={`hook-sample ${hs.id}`} lang="ar"
                               style={{ '--accent': style.accentColor } as React.CSSProperties}>قاوم</span>
                             <small>{hs.label}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {style.template === 'challenge' && (
+                    <div className="field">
+                      <span>Counter style</span>
+                      <div className="counter-styles" role="radiogroup" aria-label="Counter style">
+                        {COUNTER_STYLES.map((cs) => (
+                          <button key={cs.id} type="button" role="radio" aria-checked={style.counterStyle === cs.id}
+                            className={style.counterStyle === cs.id ? 'hook-style on' : 'hook-style'}
+                            onClick={() => set('counterStyle', cs.id)}>
+                            {cs.id === 'none' ? (
+                              <span className="counter-none">No counter</span>
+                            ) : (
+                              <CounterPreview style={{ ...style, counterStyle: cs.id }} />
+                            )}
+                            <small>{cs.label}</small>
                           </button>
                         ))}
                       </div>

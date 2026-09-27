@@ -602,3 +602,10 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
 .hook-sample.bubble::after { content: ''; position: absolute; left: 50%; bottom: -5px; margin-left: -5px; border: 5px solid transparent; border-bottom: 0; border-top-color: #fff; }
 .hook-sample.\33 d { text-shadow: 1px 1px 0 var(--accent), 2px 2px 0 var(--accent), 3px 3px 0 var(--accent), 5px 5px 3px rgba(0, 0, 0, 0.5); }
 .hook-sample.gradient { background: linear-gradient(#fff, var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6)); }
+
+/* ---------- counter styles (Challenge) ---------- */
+
+.counter-styles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.counter-styles .hook-style { padding: 8px 6px 8px; }
+.counter-preview { display: block; width: 100%; height: auto; }
+.counter-none { display: grid; place-items: center; width: 100%; aspect-ratio: 1080 / 260; font-size: 13px; color: var(--sage); }
