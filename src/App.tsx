@@ -5,6 +5,7 @@ import { CaptionBox } from './components/CaptionBox';
 import { ExportDialog, type ExportJob } from './components/ExportDialog';
 import { Presets } from './components/Presets';
 import { Select } from './components/Select';
+import { TemplatePicker } from './components/TemplatePicker';
 import { DURATIONS, FONTS, GRADIENTS, RECITERS, TRANSLATIONS } from './data/options';
 import type { Preset } from './data/presets';
 import { STOCK_VIDEOS, type StockVideo } from './data/videos';
@@ -25,6 +26,7 @@ import {
   type TextAnimation,
 } from './lib/renderer';
 import { useReciterPreview } from './lib/useReciterPreview';
+import { cardsFor, getTemplate, INTRO, OUTRO, TEMPLATES, type Template } from './lib/templates';
 import { buildTimeline, splitIntoParts, type Timeline, type TimelineItem } from './lib/timeline';
 import { getSurahWords, hasWordTimings } from './lib/words';
 
@@ -49,10 +51,10 @@ const DEFAULT_STYLE: Style = {
   outro: '',
   blur: 0,
   kenBurns: true,
+  template: 'classic',
+  hook: 'قاوم التعفن الدماغي',
 };
 
-const INTRO = 2.5; // seconds
-const OUTRO = 3;
 const OUTRO_TEXT = 'صدق الله العظيم';
 
 const ANIMATIONS: { id: TextAnimation; label: string }[] = [
@@ -62,11 +64,28 @@ const ANIMATIONS: { id: TextAnimation; label: string }[] = [
   { id: 'reveal', label: 'Word by word' },
 ];
 
+// Ready-made headlines for the templates that show one.
+const HOOKS: Record<string, string[]> = {
+  challenge: ['قاوم التعفن الدماغي', 'توقف دقيقة واستمع', 'هذه الآية ستغير يومك', 'اسمعها حتى النهاية', 'Stop scrolling. Listen.'],
+  question: ['هل تعرف معنى هذه الآية؟', 'ماذا تعني هذه الآية؟', 'Do you know what this verse means?'],
+};
+
+// Well-loved passages for "Surprise me": [surah, from, to].
+const PASSAGES: [number, number, number][] = [
+  [1, 1, 7], [2, 152, 157], [2, 255, 255], [2, 285, 286], [3, 190, 194], [13, 28, 29], [18, 1, 5],
+  [20, 25, 28], [21, 87, 88], [36, 1, 12], [39, 53, 54], [55, 1, 13], [59, 22, 24], [65, 2, 3],
+  [67, 1, 5], [93, 1, 11], [94, 1, 8], [103, 1, 3], [108, 1, 3], [112, 1, 4], [113, 1, 5], [114, 1, 6],
+];
+const TEMPLATE_FONTS = ['700 40px "Noto Kufi Arabic"', '700 40px Figtree', '40px "Noto Naskh Arabic"', 'italic 40px Figtree'];
+
+const pick = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
+
 const WORD_TIMING_RECITERS = RECITERS.filter((r) => hasWordTimings(r.id)).map((r) => r.latin);
 
-type Tab = 'passage' | 'background' | 'text' | 'publish';
+type Tab = 'passage' | 'template' | 'background' | 'text' | 'publish';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'passage', label: 'Passage' },
+  { id: 'template', label: 'Template' },
   { id: 'background', label: 'Background' },
   { id: 'text', label: 'Text' },
   { id: 'publish', label: 'Publish' },
@@ -119,6 +138,39 @@ function backgroundAt(s: LiveState, t: number, playing: boolean): Background {
   return { kind: 'layers', layers };
 }
 
+// Background without touching playback (for stills: template thumbnails, cover).
+function stillBackground(s: LiveState): Background {
+  if (s.multi && s.clips.length) return { kind: 'layers', layers: [videoLayer(s.clips[0].el)] };
+  return sourceBackground(s.bg);
+}
+
+// Where TikTok / Reels / Shorts overlay their own UI on a vertical video.
+function drawSafeZones(ctx: CanvasRenderingContext2D, format: Format) {
+  const { width: w, height: h } = ctx.canvas;
+  ctx.save();
+  ctx.font = '600 30px Figtree, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (format === '9:16') {
+    const zones: [number, number, number, number, string][] = [
+      [0, 0, w, h * 0.09, 'App header'],
+      [0, h * 0.8, w * 0.84, h * 0.2, 'Caption and username'],
+      [w * 0.84, h * 0.42, w * 0.16, h * 0.58, 'Buttons'],
+    ];
+    for (const [x, y, zw, zh, label] of zones) {
+      ctx.fillStyle = 'rgba(230, 70, 60, 0.28)';
+      ctx.fillRect(x, y, zw, zh);
+      ctx.fillStyle = '#fff';
+      if (zw > w * 0.3) ctx.fillText(label, x + zw / 2, y + zh / 2);
+    }
+  }
+  ctx.setLineDash([18, 14]);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(w * 0.05, h * 0.05, w * 0.9, h * 0.9);
+  ctx.restore();
+}
+
 function download(url: string, fileName: string) {
   const a = document.createElement('a');
   a.href = url;
@@ -149,12 +201,13 @@ export default function App() {
   const [busy, setBusy] = useState<'' | 'loading' | 'playing' | 'exporting'>('');
   const [job, setJob] = useState<ExportJob | null>(null);
   const [series, setSeries] = useState(false);
+  const [safeZones, setSafeZones] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playbackRef = useRef<Playback | null>(null);
   const cancelledRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
-  const live = useRef({ style, bg, timeline, surahName: '', reciterName: '', multi, clips, switchMode });
+  const live = useRef({ style, bg, timeline, surahName: '', reciterName: '', multi, clips, switchMode, guides: false });
   const reciterPreview = useReciterPreview(surah, from);
 
   const meta = surahs.find((s) => s.number === surah);
@@ -168,10 +221,11 @@ export default function App() {
     multi,
     clips,
     switchMode,
+    guides: safeZones && busy !== 'exporting', // never burn guides into a real-time recording
   };
 
   const useWords = style.karaoke && hasWordTimings(reciter);
-  const cards = { intro: style.intro ? INTRO : 0, outro: style.outro ? OUTRO : 0 };
+  const cards = cardsFor(style);
   const key = useMemo(
     () => JSON.stringify({ surah, from, to, reciter, duration, basmala, translation, useWords, cards }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -191,6 +245,11 @@ export default function App() {
     void document.fonts.load(`40px "${style.fontFamily}"`, 'بسم الله');
   }, [style.fontFamily]);
 
+  // Faces the templates draw with; the canvas only triggers a download on first use.
+  useEffect(() => {
+    TEMPLATE_FONTS.forEach((f) => void document.fonts.load(f, 'بسم Aa'));
+  }, []);
+
   // One render loop for idle preview, playback and export; reads state via ref.
   useEffect(() => {
     const ctx = canvasRef.current!.getContext('2d')!;
@@ -203,6 +262,7 @@ export default function App() {
       const bgT = (performance.now() - start) / 1000;
       drawFrame(ctx, t, s.timeline, backgroundAt(s, pb ? Math.max(0, t) : bgT, !!pb), s.style,
         { surahName: s.surahName, reciterName: s.reciterName }, bgT, !pb);
+      if (s.guides) drawSafeZones(ctx, s.style.format);
       raf = requestAnimationFrame(loop);
     };
     loop();
@@ -463,6 +523,7 @@ export default function App() {
       check();
 
       setJob({ phase: 'background', progress: SPLIT.audio, realtime });
+      await Promise.all(TEMPLATE_FONTS.map((f) => document.fonts.load(f, 'بسم Aa')));
       await document.fonts.ready;
       check();
 
@@ -507,6 +568,36 @@ export default function App() {
     setJob(null);
   }
 
+  // Switching templates first undoes what the previous one set, then applies the new look.
+  function pickTemplate(tpl: Template) {
+    setStyle((s) => {
+      const prev = getTemplate(s.template).defaults;
+      const undo = Object.fromEntries(Object.keys(prev).map((k) => [k, DEFAULT_STYLE[k as keyof Style]]));
+      return { ...s, ...undo, ...tpl.defaults, template: tpl.id };
+    });
+  }
+
+  function saveCover() {
+    const s = live.current;
+    const { w, h } = FORMATS[s.style.format];
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    drawFrame(c.getContext('2d')!, 0, s.timeline, stillBackground(s), s.style,
+      { surahName: s.surahName, reciterName: s.reciterName }, 0, true);
+    c.toBlob((b) => b && download(URL.createObjectURL(b), `quran-${surah}-${from}-${to}-cover.png`), 'image/png');
+  }
+
+  function surprise() {
+    const [s, a, b] = pick(PASSAGES);
+    setSurah(s);
+    setFrom(a);
+    setTo(b);
+    setReciter(pick(RECITERS.filter((r) => hasWordTimings(r.id))).id);
+    pickTemplate(pick(TEMPLATES));
+    if (!multi) void pickVideo(pick(STOCK_VIDEOS));
+  }
+
   function applyPreset(p: Preset) {
     setStyle((s) => ({ ...s, ...p.style }));
     if (p.reciter) setReciter(p.reciter);
@@ -542,6 +633,10 @@ export default function App() {
         <div className="tab-body">
           {tab === 'passage' && (
             <>
+              <button type="button" className="btn surprise" onClick={surprise}>
+                Surprise me
+                <small>A well-loved passage, reciter, template and background</small>
+              </button>
               <Select label="Surah" value={surah} onChange={changeSurah} searchable
                 placeholder="Search by name or number"
                 options={surahs.map((s) => ({
@@ -614,6 +709,31 @@ export default function App() {
                   ? 'Pick a reel length to split a long passage into parts.'
                   : 'Export makes Part 1, Part 2… so the whole passage fits in several reels. Your browser may ask to allow multiple downloads.'}
               </p>
+            </>
+          )}
+
+          {tab === 'template' && (
+            <>
+              {HOOKS[style.template] && (
+                <div className="field">
+                  <label className="field">
+                    <span>Headline</span>
+                    <input dir="auto" value={style.hook} onChange={(e) => set('hook', e.target.value)} />
+                  </label>
+                  <div className="chips">
+                    {HOOKS[style.template].map((hk) => (
+                      <button key={hk} type="button" dir="auto" className={style.hook === hk ? 'chip on' : 'chip'}
+                        onClick={() => set('hook', hk)}>
+                        {hk}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <TemplatePicker style={style} timeline={timeline}
+                meta={{ surahName: meta?.name ?? '', reciterName: reciterMeta.name }}
+                background={() => stillBackground(live.current)}
+                onPick={pickTemplate} />
             </>
           )}
 
@@ -778,6 +898,11 @@ export default function App() {
                       onBlur={(e) => !e.target.value.trim() && set('outro', OUTRO_TEXT)} />
                   </label>
                 )}
+                <div className="field">
+                  <span>Cover image</span>
+                  <button type="button" className="btn" onClick={saveCover}>Save cover as PNG</button>
+                  <p className="hint">The first verse on your background, for the reel's cover photo.</p>
+                </div>
                 <label className="field">
                   <span>Watermark</span>
                   <input placeholder="@youraccount" value={style.watermark}
@@ -815,6 +940,10 @@ export default function App() {
             {series && duration !== null ? 'Export series' : 'Export video'}
           </button>
         </div>
+        <label className="check guides">
+          <input type="checkbox" checked={safeZones} onChange={(e) => setSafeZones(e.target.checked)} />
+          Show app safe zones (preview only)
+        </label>
         <p className="status" aria-live="polite">
           {stale && timeline ? 'Settings changed. The next preview reloads the recitation. ' : ''}
           {status}
