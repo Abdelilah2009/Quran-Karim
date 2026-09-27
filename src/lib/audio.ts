@@ -14,13 +14,12 @@ export const ayahUrl = (reciter: string, surah: number, ayah: number) =>
 
 const cache = new Map<string, Promise<AudioBuffer>>();
 
-export function loadAyahAudio(reciter: string, surah: number, ayah: number): Promise<AudioBuffer> {
-  const url = ayahUrl(reciter, surah, ayah);
+export function loadAudio(url: string, label: string): Promise<AudioBuffer> {
   let p = cache.get(url);
   if (!p) {
     p = fetch(url)
       .then((r) => {
-        if (!r.ok) throw new Error(`Couldn't load the recitation for verse ${ayah}.`);
+        if (!r.ok) throw new Error(`Couldn't load the recitation for ${label}.`);
         return r.arrayBuffer();
       })
       .then((buf) => getAudioContext().decodeAudioData(buf));
@@ -29,3 +28,6 @@ export function loadAyahAudio(reciter: string, surah: number, ayah: number): Pro
   }
   return p;
 }
+
+export const loadAyahAudio = (reciter: string, surah: number, ayah: number) =>
+  loadAudio(ayahUrl(reciter, surah, ayah), `verse ${ayah}`);

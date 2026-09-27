@@ -9,12 +9,14 @@ export interface ExportJob {
   url?: string;
   fileName?: string;
   sizeMb?: number;
+  realtime?: boolean; // MediaRecorder fallback: records at 1x speed
+  part?: { index: number; total: number }; // series export
 }
 
 const STEPS: { phase: ExportPhase; label: string }[] = [
   { phase: 'audio', label: 'Loading the recitation' },
   { phase: 'background', label: 'Preparing the background' },
-  { phase: 'recording', label: 'Recording the reel' },
+  { phase: 'recording', label: 'Rendering the video' },
   { phase: 'saving', label: 'Saving the file' },
 ];
 
@@ -36,7 +38,11 @@ export function ExportDialog({ job, onCancel, onClose }: Props) {
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="export-title">
       <div className="dialog">
-        <h2 id="export-title">{finished ? 'Your reel is ready' : failed ? 'Export stopped' : 'Exporting your reel'}</h2>
+        <h2 id="export-title">
+          {finished
+            ? job.part ? `Your ${job.part.total} reels are ready` : 'Your reel is ready'
+            : failed ? 'Export stopped' : job.part ? `Exporting part ${job.part.index} of ${job.part.total}` : 'Exporting your reel'}
+        </h2>
 
         {finished && job.url ? (
           <video className="result" src={job.url} controls playsInline />
@@ -69,13 +75,13 @@ export function ExportDialog({ job, onCancel, onClose }: Props) {
           </ol>
         )}
 
-        {job.phase === 'recording' && (
+        {job.phase === 'recording' && job.realtime && (
           <p className="hint center">Keep this tab open. Recording runs in real time.</p>
         )}
         {failed && <p className="error center">{job.message}</p>}
         {finished && (
           <p className="hint center">
-            Saved as {job.fileName} ({job.sizeMb?.toFixed(1)} MB)
+            {job.part ? 'Last part saved as' : 'Saved as'} {job.fileName} ({job.sizeMb?.toFixed(1)} MB)
           </p>
         )}
 

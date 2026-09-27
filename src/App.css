@@ -528,3 +528,21 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
   .mihrab { --h: auto; height: auto; width: min(100%, 320px); }
   .thumbs { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ---------- publish tab groups ---------- */
+
+.group { display: flex; flex-direction: column; gap: 14px; }
+.group + .group { border-top: 1px solid var(--gilt-soft); padding-top: 20px; }
+.group h2 { font-family: 'Marcellus', serif; font-weight: 400; font-size: 18px; color: var(--paper); margin: 0; }
+
+/* Non-vertical formats: a plain gilt frame instead of the arch. */
+.mihrab.flat {
+  aspect-ratio: var(--ar);
+  height: auto;
+  width: min(100%, calc(var(--h) * var(--ar)));
+  border-radius: 14px;
+}
+.mihrab.flat canvas { border-radius: 6px; }
+@media (max-width: 900px) {
+  .mihrab.flat { width: min(100%, 480px); }
+}

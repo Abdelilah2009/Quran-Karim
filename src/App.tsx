@@ -1,18 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import { BackgroundPicker } from './components/BackgroundPicker';
+import { CaptionBox } from './components/CaptionBox';
 import { ExportDialog, type ExportJob } from './components/ExportDialog';
+import { Presets } from './components/Presets';
 import { Select } from './components/Select';
 import { DURATIONS, FONTS, GRADIENTS, RECITERS, TRANSLATIONS } from './data/options';
+import type { Preset } from './data/presets';
 import { STOCK_VIDEOS, type StockVideo } from './data/videos';
-import { getAudioContext, loadAyahAudio } from './lib/audio';
+import { getAudioContext, loadAudio, loadAyahAudio } from './lib/audio';
 import { playTimeline, recordReel, type Playback } from './lib/engine';
 import { createVideo, downloadVideo, seekToStart } from './lib/media';
+import { canExportOffline, mixTimeline, renderOffline, type Frame, type FrameRequest } from './lib/offline';
 import { BASMALA, getAyat, getSurahs, type SurahMeta } from './lib/quran';
 import { clipAt, type SwitchMode } from './lib/playlist';
-import { drawFrame, H, W, type Background, type Style } from './lib/renderer';
+import {
+  drawFrame,
+  FORMATS,
+  type Background,
+  type Format,
+  type Layer,
+  type Meta,
+  type Style,
+  type TextAnimation,
+} from './lib/renderer';
 import { useReciterPreview } from './lib/useReciterPreview';
-import { buildTimeline, type Timeline } from './lib/timeline';
+import { buildTimeline, splitIntoParts, type Timeline, type TimelineItem } from './lib/timeline';
+import { getSurahWords, hasWordTimings } from './lib/words';
 
 const DEFAULT_STYLE: Style = {
   fontFamily: 'Amiri Quran',
@@ -27,34 +41,72 @@ const DEFAULT_STYLE: Style = {
   showAyahNumber: true,
   showProgress: true,
   watermark: '',
+  animation: 'fade',
+  karaoke: false,
+  highlightColor: '#f2c96b',
+  format: '9:16',
+  intro: false,
+  outro: '',
+  blur: 0,
+  kenBurns: true,
 };
 
-type Tab = 'passage' | 'background' | 'text';
+const INTRO = 2.5; // seconds
+const OUTRO = 3;
+const OUTRO_TEXT = 'صدق الله العظيم';
+
+const ANIMATIONS: { id: TextAnimation; label: string }[] = [
+  { id: 'fade', label: 'Fade' },
+  { id: 'slide', label: 'Slide up' },
+  { id: 'zoom', label: 'Zoom' },
+  { id: 'reveal', label: 'Word by word' },
+];
+
+const WORD_TIMING_RECITERS = RECITERS.filter((r) => hasWordTimings(r.id)).map((r) => r.latin);
+
+type Tab = 'passage' | 'background' | 'text' | 'publish';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'passage', label: 'Passage' },
   { id: 'background', label: 'Background' },
   { id: 'text', label: 'Text' },
+  { id: 'publish', label: 'Publish' },
 ];
 
 // Overall export progress is split across phases.
 const SPLIT = { audio: 0.15, background: 0.2, recording: 0.97 };
 
+// What the user picked as the background; the renderer gets it as layers.
+type Source =
+  | { kind: 'gradient'; colors: [string, string] }
+  | { kind: 'video'; el: HTMLVideoElement }
+  | { kind: 'image'; el: HTMLImageElement };
+
+type QueueItem = Omit<TimelineItem, 'buffer' | 'words'> & { audioSurah: number; audioAyah: number };
+
 type LiveState = {
-  bg: Background;
+  bg: Source;
   timeline: Timeline | null;
   multi: boolean;
   clips: { id: string; el: HTMLVideoElement }[];
   switchMode: SwitchMode;
 };
 
+const videoLayer = (el: HTMLVideoElement, alpha = 1): Layer => ({ src: el, w: el.videoWidth, h: el.videoHeight, alpha });
+
+function sourceBackground(src: Source): Background {
+  if (src.kind === 'gradient') return src;
+  if (src.kind === 'video') return { kind: 'layers', layers: [videoLayer(src.el)] };
+  return { kind: 'layers', layers: [{ src: src.el, w: src.el.naturalWidth, h: src.el.naturalHeight, alpha: 1 }] };
+}
+
 // Resolve what to draw this frame. In multi-clip mode this also plays the
 // visible clips and pauses the rest, so off-screen videos don't drift.
 function backgroundAt(s: LiveState, t: number, playing: boolean): Background {
-  if (!s.multi || !s.clips.length) return s.bg;
+  if (!s.multi || !s.clips.length) return sourceBackground(s.bg);
   if (s.clips.length === 1) {
     const el = s.clips[0].el;
     if (el.paused) void el.play();
-    return { kind: 'video', el };
+    return { kind: 'layers', layers: [videoLayer(el)] };
   }
   const clip = clipAt(t, s.clips.length, s.switchMode, s.timeline, playing);
   s.clips.forEach((c, i) => {
@@ -62,7 +114,16 @@ function backgroundAt(s: LiveState, t: number, playing: boolean): Background {
     if (visible && c.el.paused) void c.el.play();
     else if (!visible && !c.el.paused) c.el.pause();
   });
-  return { kind: 'playlist', els: s.clips.map((c) => c.el), clip };
+  const layers = [videoLayer(s.clips[clip.index].el)];
+  if (clip.mix > 0) layers.push(videoLayer(s.clips[clip.next].el, clip.mix));
+  return { kind: 'layers', layers };
+}
+
+function download(url: string, fileName: string) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
 }
 
 export default function App() {
@@ -76,7 +137,7 @@ export default function App() {
   const [basmala, setBasmala] = useState(true);
   const [translation, setTranslation] = useState('');
   const [style, setStyle] = useState<Style>(DEFAULT_STYLE);
-  const [bg, setBg] = useState<Background>({ kind: 'gradient', colors: GRADIENTS[4].colors });
+  const [bg, setBg] = useState<Source>({ kind: 'gradient', colors: GRADIENTS[4].colors });
   const [bgId, setBgId] = useState('');
   const [bgLoading, setBgLoading] = useState<{ id: string; progress: number } | null>(null);
   const [multi, setMulti] = useState(false);
@@ -87,10 +148,12 @@ export default function App() {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState<'' | 'loading' | 'playing' | 'exporting'>('');
   const [job, setJob] = useState<ExportJob | null>(null);
+  const [series, setSeries] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playbackRef = useRef<Playback | null>(null);
   const cancelledRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
   const live = useRef({ style, bg, timeline, surahName: '', reciterName: '', multi, clips, switchMode });
   const reciterPreview = useReciterPreview(surah, from);
 
@@ -107,9 +170,12 @@ export default function App() {
     switchMode,
   };
 
+  const useWords = style.karaoke && hasWordTimings(reciter);
+  const cards = { intro: style.intro ? INTRO : 0, outro: style.outro ? OUTRO : 0 };
   const key = useMemo(
-    () => JSON.stringify({ surah, from, to, reciter, duration, basmala, translation }),
-    [surah, from, to, reciter, duration, basmala, translation],
+    () => JSON.stringify({ surah, from, to, reciter, duration, basmala, translation, useWords, cards }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [surah, from, to, reciter, duration, basmala, translation, useWords, cards.intro, cards.outro],
   );
   const stale = key !== timelineKey;
 
@@ -136,7 +202,7 @@ export default function App() {
       const t = pb?.time() ?? 0;
       const bgT = (performance.now() - start) / 1000;
       drawFrame(ctx, t, s.timeline, backgroundAt(s, pb ? Math.max(0, t) : bgT, !!pb), s.style,
-        { surahName: s.surahName, reciterName: s.reciterName }, bgT);
+        { surahName: s.surahName, reciterName: s.reciterName }, bgT, !pb);
       raf = requestAnimationFrame(loop);
     };
     loop();
@@ -232,17 +298,15 @@ export default function App() {
     setTo(Math.min(m?.numberOfAyahs ?? 7, 10));
   }
 
-  async function prepare(onProgress?: (p: number) => void): Promise<Timeline> {
-    if (!stale && timeline) {
-      onProgress?.(1);
-      return timeline;
-    }
+  // Fetch verse text + recitation audio. `limit` stops early once there is
+  // clearly enough audio for a reel of that length (null = load everything).
+  async function loadItems(limit: number | null, onProgress?: (p: number) => void): Promise<TimelineItem[]> {
     getAudioContext();
     setStatus('Loading verses…');
     const ayat = await getAyat(surah, from, to, translation);
-    const queue = [
+    const queue: QueueItem[] = [
       ...(basmala && from === 1 && surah !== 1 && surah !== 9
-        ? [{ surah, ayah: 0, audioSurah: 1, audioAyah: 1, text: BASMALA, translation: undefined as string | undefined }]
+        ? [{ surah, ayah: 0, audioSurah: 1, audioAyah: 1, text: BASMALA }]
         : []),
       ...ayat.map((a) => ({
         surah,
@@ -254,23 +318,35 @@ export default function App() {
       })),
     ];
 
-    // Load in small batches; stop once there is clearly enough audio for the target.
-    const items: ((typeof queue)[number] & { buffer: AudioBuffer })[] = [];
+    // Karaoke loads quran.com's audio, because its word timings match those files.
+    const load = async ({ audioSurah, audioAyah, ...q }: QueueItem): Promise<TimelineItem> => {
+      const w = useWords ? (await getSurahWords(reciter, audioSurah)).get(audioAyah) : undefined;
+      const buffer = w
+        ? await loadAudio(w.audioUrl, `verse ${audioAyah}`)
+        : await loadAyahAudio(reciter, audioSurah, audioAyah);
+      return { ...q, words: w?.words, buffer };
+    };
+
+    const items: TimelineItem[] = [];
     let total = 0;
     for (let i = 0; i < queue.length; i += 5) {
-      const batch = queue.slice(i, i + 5);
-      const buffers = await Promise.all(batch.map((q) => loadAyahAudio(reciter, q.audioSurah, q.audioAyah)));
-      batch.forEach((q, j) => {
-        items.push({ ...q, buffer: buffers[j] });
-        total += buffers[j].duration;
-      });
+      const loaded = await Promise.all(queue.slice(i, i + 5).map(load));
+      items.push(...loaded);
+      total += loaded.reduce((n, it) => n + it.buffer.duration, 0);
       onProgress?.(items.length / queue.length);
       setStatus(`Loading recitation ${items.length} of ${queue.length}…`);
-      if (duration !== null && total > duration * 1.25 + 10) break;
+      if (limit !== null && total > limit * 1.25 + 10) break;
     }
     onProgress?.(1);
+    return items;
+  }
 
-    const tl = buildTimeline(items, duration);
+  async function prepare(onProgress?: (p: number) => void): Promise<Timeline> {
+    if (!stale && timeline) {
+      onProgress?.(1);
+      return timeline;
+    }
+    const tl = buildTimeline(await loadItems(duration, onProgress), duration, cards);
     setTimeline(tl);
     setTimelineKey(key);
     const verses = tl.segments.filter((s) => s.ayah > 0).length;
@@ -296,41 +372,126 @@ export default function App() {
     }
   }
 
+  // Offline WebCodecs render (faster than real time, frame-exact), falling back
+  // to recording the preview canvas where WebCodecs isn't available.
+  async function renderPart(
+    tl: Timeline,
+    part: Meta['part'],
+    onProgress: (p: number) => void,
+  ): Promise<{ blob: Blob; ext: string }> {
+    if (canExportOffline()) {
+      try {
+        return await renderOfflinePart(tl, part, onProgress);
+      } catch (e) {
+        if ((e as Error).message === 'cancelled') throw e;
+        console.warn('Offline export failed, recording in real time instead.', e);
+        setJob((j) => j && { ...j, realtime: true });
+      }
+    }
+    await rewindBackground();
+    let ticker = 0;
+    try {
+      return await recordReel(canvasRef.current!, tl, (pb) => {
+        playbackRef.current = pb;
+        ticker = window.setInterval(() => onProgress(Math.max(0, Math.min(pb.time() / tl.duration, 1))), 100);
+      });
+    } finally {
+      clearInterval(ticker);
+      playbackRef.current = null;
+    }
+  }
+
+  async function renderOfflinePart(
+    tl: Timeline,
+    part: Meta['part'],
+    onProgress: (p: number) => void,
+  ): Promise<{ blob: Blob; ext: string }> {
+    const snap = live.current;
+    const vids = snap.multi && snap.clips.length ? snap.clips.map((c) => c.el) : snap.bg.kind === 'video' ? [snap.bg.el] : [];
+    const clip = (t: number) => clipAt(t, vids.length, snap.switchMode, tl, true);
+    const plan = (t: number): FrameRequest[] => {
+      if (vids.length <= 1) return vids.length ? [{ video: 0, time: t }] : [];
+      const c = clip(t);
+      return [{ video: c.index, time: t }, ...(c.mix > 0 ? [{ video: c.next, time: t }] : [])];
+    };
+    const still = vids.length ? null : sourceBackground(snap.bg);
+    const meta: Meta = { surahName: snap.surahName, reciterName: snap.reciterName, part };
+    const { w, h } = FORMATS[snap.style.format];
+    abortRef.current = new AbortController();
+    return renderOffline({
+      width: w,
+      height: h,
+      duration: tl.duration,
+      audio: await mixTimeline(tl),
+      videos: vids.map((v) => v.src),
+      plan,
+      draw: (ctx, t, frames: (Frame | null)[]) => {
+        const mix = vids.length > 1 ? clip(t).mix : 1;
+        const bg: Background = still ?? {
+          kind: 'layers',
+          layers: frames.flatMap((f, i) => (f ? [{ ...f, alpha: i === 0 ? 1 : mix }] : [])),
+        };
+        drawFrame(ctx as CanvasRenderingContext2D, t, tl, bg, snap.style, meta, t);
+      },
+      onProgress,
+      signal: abortRef.current.signal,
+    });
+  }
+
   async function exportReel() {
     cancelledRef.current = false;
     setBusy('exporting');
-    setJob({ phase: 'audio', progress: 0 });
-    let ticker = 0;
+    const realtime = !canExportOffline();
+    setJob({ phase: 'audio', progress: 0, realtime });
+    const check = () => {
+      if (cancelledRef.current) throw new Error('cancelled');
+    };
     try {
-      const tl = await prepare((p) => setJob({ phase: 'audio', progress: p * SPLIT.audio }));
-      if (cancelledRef.current) throw new Error('cancelled');
+      const audioProgress = (p: number) => setJob({ phase: 'audio', progress: p * SPLIT.audio, realtime });
+      let parts: Timeline[];
+      if (series && duration !== null) {
+        const items = await loadItems(null, audioProgress);
+        const budget = Math.max(5, duration - cards.intro - cards.outro);
+        let at = 0;
+        parts = splitIntoParts(items.map((i) => i.buffer.duration), budget).map((n) => {
+          const tl = buildTimeline(items.slice(at, at + n), null, cards);
+          at += n;
+          return tl;
+        });
+        setStatus(`${parts.length} parts`);
+      } else parts = [await prepare(audioProgress)];
+      check();
 
-      setJob({ phase: 'background', progress: SPLIT.audio });
+      setJob({ phase: 'background', progress: SPLIT.audio, realtime });
       await document.fonts.ready;
-      await rewindBackground();
-      if (cancelledRef.current) throw new Error('cancelled');
+      check();
 
-      const { blob, ext } = await recordReel(canvasRef.current!, tl, (pb) => {
-        playbackRef.current = pb;
-        ticker = window.setInterval(() => {
-          const elapsed = Math.max(0, Math.min(pb.time(), tl.duration));
-          const p = SPLIT.background + (elapsed / tl.duration) * (SPLIT.recording - SPLIT.background);
-          setJob({ phase: 'recording', progress: p, elapsed, total: tl.duration });
-        }, 100);
-      });
-      clearInterval(ticker);
-      if (cancelledRef.current) throw new Error('cancelled');
-
-      setJob({ phase: 'saving', progress: 0.99 });
-      const url = URL.createObjectURL(blob);
-      const fileName = `quran-${surah}-${from}-${to}.${ext}`;
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      a.click();
-      setJob({ phase: 'done', progress: 1, url, fileName, sizeMb: blob.size / 1e6 });
+      let result: Pick<ExportJob, 'url' | 'fileName' | 'sizeMb'> = {};
+      const total = parts.length > 1 ? parts.length : 0;
+      for (let i = 0; i < parts.length; i++) {
+        const tl = parts[i];
+        const part = total ? { index: i + 1, total } : undefined;
+        const { blob, ext } = await renderPart(tl, part, (p) => {
+          const overall = (i + p) / parts.length;
+          setJob({
+            phase: 'recording',
+            progress: SPLIT.background + overall * (SPLIT.recording - SPLIT.background),
+            elapsed: p * tl.duration,
+            total: tl.duration,
+            realtime,
+            part,
+          });
+        });
+        check();
+        const ayat = tl.segments.filter((s) => s.ayah > 0).map((s) => s.ayah);
+        const range = ayat.length ? `${ayat[0]}-${ayat[ayat.length - 1]}` : '1';
+        const fileName = `quran-${surah}-${range}${part ? `-part${part.index}` : ''}.${ext}`;
+        const url = URL.createObjectURL(blob);
+        download(url, fileName);
+        result = { url, fileName, sizeMb: blob.size / 1e6 };
+      }
+      setJob({ phase: 'done', progress: 1, ...result, part: total ? { index: total, total } : undefined });
     } catch (e) {
-      clearInterval(ticker);
       const msg = (e as Error).message;
       setJob(msg === 'cancelled' ? null : { phase: 'error', progress: 0, message: msg });
     } finally {
@@ -341,12 +502,22 @@ export default function App() {
 
   function cancelExport() {
     cancelledRef.current = true;
+    abortRef.current?.abort();
     playbackRef.current?.stop();
     setJob(null);
   }
 
+  function applyPreset(p: Preset) {
+    setStyle((s) => ({ ...s, ...p.style }));
+    if (p.reciter) setReciter(p.reciter);
+    if (p.translation !== undefined) setTranslation(p.translation);
+    const v = p.bgId && !multi ? STOCK_VIDEOS.find((sv) => sv.id === p.bgId) : undefined;
+    if (v && v.id !== bgId) void pickVideo(v);
+  }
+
   const set = <K extends keyof Style>(k: K, v: Style[K]) => setStyle((s) => ({ ...s, [k]: v }));
   const maxAyah = meta?.numberOfAyahs ?? 7;
+  const fmt = FORMATS[style.format];
 
   return (
     <div className="app">
@@ -433,6 +604,16 @@ export default function App() {
                   ))}
                 </div>
               </div>
+              <label className="check">
+                <input type="checkbox" checked={series && duration !== null} disabled={duration === null}
+                  onChange={(e) => setSeries(e.target.checked)} />
+                Split into a series{duration !== null ? ` of ${duration}s reels` : ''}
+              </label>
+              <p className="hint">
+                {duration === null
+                  ? 'Pick a reel length to split a long passage into parts.'
+                  : 'Export makes Part 1, Part 2… so the whole passage fits in several reels. Your browser may ask to allow multiple downloads.'}
+              </p>
             </>
           )}
 
@@ -452,6 +633,15 @@ export default function App() {
                 <span>Dim background ({Math.round(style.overlay * 100)}%)</span>
                 <input type="range" min={0} max={0.85} step={0.05} value={style.overlay}
                   onChange={(e) => set('overlay', +e.target.value)} />
+              </label>
+              <label className="field">
+                <span>Blur background ({style.blur}px)</span>
+                <input type="range" min={0} max={24} step={1} value={style.blur}
+                  onChange={(e) => set('blur', +e.target.value)} />
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={style.kenBurns} onChange={(e) => set('kenBurns', e.target.checked)} />
+                Slow zoom and drift (Ken Burns)
               </label>
             </>
           )}
@@ -484,7 +674,36 @@ export default function App() {
                   <span>Title color</span>
                   <input type="color" value={style.accentColor} onChange={(e) => set('accentColor', e.target.value)} />
                 </label>
+                {style.karaoke && (
+                  <label className="field color">
+                    <span>Highlight</span>
+                    <input type="color" value={style.highlightColor}
+                      onChange={(e) => set('highlightColor', e.target.value)} />
+                  </label>
+                )}
               </div>
+              <div className="field">
+                <span>Animation</span>
+                <div className="segmented">
+                  {ANIMATIONS.map((a) => (
+                    <button key={a.id} className={style.animation === a.id ? 'on' : ''}
+                      onClick={() => set('animation', a.id)}>
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="check">
+                <input type="checkbox" checked={style.karaoke} onChange={(e) => set('karaoke', e.target.checked)} />
+                Highlight each word as it's recited
+              </label>
+              {style.karaoke && (
+                <p className="hint">
+                  {hasWordTimings(reciter)
+                    ? 'Word timings come from quran.com for this reciter.'
+                    : `This reciter has no word timings, so the highlight is estimated. For exact timing pick ${WORD_TIMING_RECITERS.join(', ')}.`}
+                </p>
+              )}
               <div className="field">
                 <span>Verse position</span>
                 <div className="segmented">
@@ -512,26 +731,88 @@ export default function App() {
                   onChange={(e) => set('showProgress', e.target.checked)} />
                 Show progress bar
               </label>
-              <label className="field">
-                <span>Watermark</span>
-                <input placeholder="@youraccount" value={style.watermark}
-                  onChange={(e) => set('watermark', e.target.value)} />
-              </label>
+            </>
+          )}
+
+          {tab === 'publish' && (
+            <>
+              <section className="group">
+                <h2>Presets</h2>
+                <Presets
+                  current={{
+                    style,
+                    reciter,
+                    translation,
+                    bgId: multi ? clips[0]?.id : bgId && bgId !== 'upload' ? bgId : undefined,
+                  }}
+                  onApply={applyPreset} />
+              </section>
+
+              <section className="group">
+                <h2>Video</h2>
+                <div className="field">
+                  <span>Format</span>
+                  <div className="segmented">
+                    {(Object.keys(FORMATS) as Format[]).map((f) => (
+                      <button key={f} className={style.format === f ? 'on' : ''} title={FORMATS[f].hint}
+                        onClick={() => set('format', f)}>
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="hint">{FORMATS[style.format].hint}, {FORMATS[style.format].w}×{FORMATS[style.format].h}</p>
+                </div>
+                <label className="check">
+                  <input type="checkbox" checked={style.intro} onChange={(e) => set('intro', e.target.checked)} />
+                  Open with a title card ({INTRO}s)
+                </label>
+                <label className="check">
+                  <input type="checkbox" checked={!!style.outro}
+                    onChange={(e) => set('outro', e.target.checked ? OUTRO_TEXT : '')} />
+                  End with a closing card ({OUTRO}s)
+                </label>
+                {!!style.outro && (
+                  <label className="field">
+                    <span>Closing text</span>
+                    <input dir="auto" value={style.outro} onChange={(e) => set('outro', e.target.value)}
+                      onBlur={(e) => !e.target.value.trim() && set('outro', OUTRO_TEXT)} />
+                  </label>
+                )}
+                <label className="field">
+                  <span>Watermark</span>
+                  <input placeholder="@youraccount" value={style.watermark}
+                    onChange={(e) => set('watermark', e.target.value)} />
+                </label>
+              </section>
+
+              <section className="group">
+                <h2>Caption</h2>
+                <CaptionBox
+                  surah={surah}
+                  surahName={meta?.englishName ?? ''}
+                  surahArabic={meta?.name ?? ''}
+                  from={from}
+                  to={to}
+                  reciterLatin={reciterMeta.latin}
+                  reciterArabic={reciterMeta.name}
+                  translation={translation} />
+              </section>
             </>
           )}
         </div>
       </aside>
 
       <main className="stage">
-        <div className="mihrab">
-          <canvas ref={canvasRef} width={W} height={H} aria-label="Reel preview" />
+        <div className={style.format === '9:16' ? 'mihrab' : 'mihrab flat'}
+          style={{ '--ar': fmt.w / fmt.h } as React.CSSProperties}>
+          <canvas ref={canvasRef} width={fmt.w} height={fmt.h} aria-label="Reel preview" />
         </div>
         <div className="actions">
           <button className="btn" onClick={preview} disabled={busy === 'loading' || busy === 'exporting'}>
             {busy === 'playing' ? 'Stop' : busy === 'loading' ? 'Loading…' : 'Play preview'}
           </button>
           <button className="btn primary" onClick={exportReel} disabled={busy !== ''}>
-            Export video
+            {series && duration !== null ? 'Export series' : 'Export video'}
           </button>
         </div>
         <p className="status" aria-live="polite">

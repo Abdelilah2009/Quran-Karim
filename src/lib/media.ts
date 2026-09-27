@@ -34,8 +34,10 @@ export function createVideo(src: string): Promise<HTMLVideoElement> {
   return new Promise((resolve, reject) => {
     const el = document.createElement('video');
     Object.assign(el, { muted: true, loop: true, playsInline: true, preload: 'auto' });
-    el.onloadeddata = () => {
-      void el.play();
+    // Metadata is enough to start: frames follow, and loadeddata can be held
+    // back while the tab is in the background.
+    el.onloadedmetadata = () => {
+      void el.play().catch(() => {});
       resolve(el);
     };
     el.onerror = () => reject(new Error("This video format can't be played in your browser."));

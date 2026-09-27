@@ -34,13 +34,16 @@ export const FONTS = [
   { id: 'Aref Ruqaa', label: 'Ruqaa' },
 ];
 
+// Arabic-script editions are detected in the renderer and drawn right-to-left.
 export const TRANSLATIONS = [
   { id: '', label: 'No translation' },
+  { id: 'ar.muyassar', label: 'Tafsir Al-Muyassar (Arabic)' },
   { id: 'en.sahih', label: 'English (Sahih Intl)' },
   { id: 'fr.hamidullah', label: 'Français (Hamidullah)' },
   { id: 'es.cortes', label: 'Español (Cortés)' },
   { id: 'id.indonesian', label: 'Bahasa Indonesia' },
   { id: 'tr.diyanet', label: 'Türkçe (Diyanet)' },
+  { id: 'ur.jalandhry', label: 'اردو (Jalandhry)' },
 ];
 
 export const GRADIENTS: { id: string; colors: [string, string] }[] = [

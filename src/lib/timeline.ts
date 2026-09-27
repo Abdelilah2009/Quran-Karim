@@ -1,8 +1,15 @@
+export interface Word {
+  text: string;
+  start: number; // seconds from the segment start
+  end: number;
+}
+
 export interface Segment {
   surah: number;
   ayah: number; // 0 = basmala
   text: string;
   translation?: string;
+  words?: Word[]; // word-level timings (karaoke), when the reciter has them
   buffer: AudioBuffer;
   start: number; // seconds from reel start
   end: number;
@@ -10,50 +17,71 @@ export interface Segment {
 
 export interface Timeline {
   segments: Segment[];
-  duration: number; // final reel length in seconds
+  duration: number; // final reel length in seconds, intro and outro included
   cut: boolean; // true if the last ayah is cut off mid-recitation
+  intro: number; // seconds of title card before the first ayah
+  outro: number; // seconds of closing card after the last ayah
 }
 
 export interface FitResult {
   count: number; // how many ayat (from the start of the list) go into the reel
-  cutAt: number; // the reel length in seconds
+  cutAt: number; // the recitation length in seconds
 }
 
+export type TimelineItem = Omit<Segment, 'start' | 'end'>;
+
+const OVERSHOOT = 1.1; // a "60s" reel may run to 66s rather than drop a verse
+
 /**
- * Decide which ayat fit into a reel of `target` seconds.
- *
- * @param durations  length in seconds of each selected ayah, in order
- * @param target     the chosen reel length (30, 60, 90...) or null = "full, no limit"
- *
- * Trade-offs to consider:
- *  - Never cutting an ayah mid-recitation is respectful of the Quran, but a
- *    "60s" reel may then end at 41s.
- *  - Allowing a slight overshoot (e.g. up to +10%) keeps reels close to the target.
- *  - If even the FIRST ayah is longer than the target (e.g. Al-Baqarah 282),
- *    you must still return count >= 1 — either cut it or ignore the target.
+ * Decide which ayat fit into `target` seconds. Ayat are never cut mid-recitation:
+ * whole ayat are added while they fit (with a 10% tolerance), and the first
+ * ayah is always kept even when it alone is longer than the target.
  */
 export function fitAyatToDuration(durations: number[], target: number | null): FitResult {
   const total = durations.reduce((a, b) => a + b, 0);
   if (target === null) return { count: durations.length, cutAt: total };
 
-  // TODO(you): replace this placeholder with your rule (5-10 lines).
-  return { count: durations.length, cutAt: total };
+  let count = 0;
+  let sum = 0;
+  while (count < durations.length && (count === 0 || sum + durations[count] <= target * OVERSHOOT)) {
+    sum += durations[count++];
+  }
+  return { count, cutAt: sum };
+}
+
+/** Split a long passage into consecutive parts that each fit `target` (for series). */
+export function splitIntoParts(durations: number[], target: number): number[] {
+  const parts: number[] = [];
+  for (let i = 0; i < durations.length; ) {
+    const { count } = fitAyatToDuration(durations.slice(i), target);
+    parts.push(count);
+    i += count;
+  }
+  return parts;
 }
 
 export function buildTimeline(
-  items: { surah: number; ayah: number; text: string; translation?: string; buffer: AudioBuffer }[],
+  items: TimelineItem[],
   target: number | null,
+  cards: { intro: number; outro: number } = { intro: 0, outro: 0 },
 ): Timeline {
+  const budget = target === null ? null : Math.max(5, target - cards.intro - cards.outro);
   const { count, cutAt } = fitAyatToDuration(
     items.map((i) => i.buffer.duration),
-    target,
+    budget,
   );
-  let t = 0;
+  let t = cards.intro;
   const segments = items.slice(0, Math.max(1, count)).map((i) => {
     const seg = { ...i, start: t, end: t + i.buffer.duration };
     t = seg.end;
     return seg;
   });
-  const duration = Math.min(t, cutAt);
-  return { segments: segments.filter((s) => s.start < duration), duration, cut: duration < t - 0.05 };
+  const audioEnd = Math.min(t, cards.intro + cutAt);
+  return {
+    segments: segments.filter((s) => s.start < audioEnd),
+    duration: audioEnd + cards.outro,
+    cut: audioEnd < t - 0.05,
+    intro: cards.intro,
+    outro: cards.outro,
+  };
 }
