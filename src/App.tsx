@@ -20,6 +20,7 @@ import {
   FORMATS,
   type Background,
   type Format,
+  type HookStyle,
   type Layer,
   type Meta,
   type Style,
@@ -53,6 +54,7 @@ const DEFAULT_STYLE: Style = {
   kenBurns: true,
   template: 'classic',
   hook: 'قاوم التعفن الدماغي',
+  hookStyle: 'plain',
 };
 
 const OUTRO_TEXT = 'صدق الله العظيم';
@@ -76,6 +78,14 @@ const PASSAGES: [number, number, number][] = [
   [20, 25, 28], [21, 87, 88], [36, 1, 12], [39, 53, 54], [55, 1, 13], [59, 22, 24], [65, 2, 3],
   [67, 1, 5], [93, 1, 11], [94, 1, 8], [103, 1, 3], [108, 1, 3], [112, 1, 4], [113, 1, 5], [114, 1, 6],
 ];
+const HOOK_STYLES: { id: HookStyle; label: string }[] = [
+  { id: 'plain', label: 'Plain' },
+  { id: 'box', label: 'Box' },
+  { id: 'marker', label: 'Marker' },
+  { id: 'glow', label: 'Glow' },
+  { id: 'outline', label: 'Outline' },
+];
+
 const TEMPLATE_FONTS = ['700 40px "Noto Kufi Arabic"', '700 40px Figtree', '40px "Noto Naskh Arabic"', 'italic 40px Figtree'];
 
 const pick = <T,>(list: T[]): T => list[Math.floor(Math.random() * list.length)];
@@ -728,6 +738,22 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                  {style.template === 'challenge' && (
+                    <div className="field">
+                      <span>Headline style</span>
+                      <div className="hook-styles" role="radiogroup" aria-label="Headline style">
+                        {HOOK_STYLES.map((hs) => (
+                          <button key={hs.id} type="button" role="radio" aria-checked={style.hookStyle === hs.id}
+                            className={style.hookStyle === hs.id ? 'hook-style on' : 'hook-style'}
+                            onClick={() => set('hookStyle', hs.id)}>
+                            <span className={`hook-sample ${hs.id}`} lang="ar"
+                              style={{ '--accent': style.accentColor } as React.CSSProperties}>قاوم</span>
+                            <small>{hs.label}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <TemplatePicker style={style} timeline={timeline}

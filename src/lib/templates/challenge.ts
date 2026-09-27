@@ -15,33 +15,106 @@ function fitHook(ctx: Ctx, text: string, font: (size: number) => string, maxW: n
   return { size, lines: wrapText(ctx, text, font(size), maxW, 2) };
 }
 
-// Plain white headline centered on `cy`, with a soft outline so it reads on any footage.
+// Dark ink on light fills, white on dark ones (presets recolor the marker).
+function inkOn(color: string): string {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
+  if (!m) return '#111';
+  const hex = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#111' : '#fff';
+}
+
+// Headline centered on `cy`, in one of the HookStyle looks. Returns its bottom edge.
 function drawHook(f: FrameInfo, cy: number, u: number): number {
   const { ctx, W, style } = f;
   const text = style.hook.trim();
   if (!text) return cy;
+  const look = style.hookStyle;
   const rtl = isRtl(text);
   const font = (s: number) => `700 ${s}px ${rtl ? UI_AR : UI_LTR}`;
-  const { size, lines } = fitHook(ctx, text, font, Math.min(W * 0.8, 1300), u * 0.056);
-  const lineH = size * (rtl ? 1.5 : 1.2);
+  const boxed = look === 'box' || look === 'marker';
+  const base = u * (look === 'outline' ? 0.064 : boxed ? 0.05 : 0.056);
+  const { size, lines } = fitHook(ctx, text, font, Math.min(W * (boxed ? 0.72 : 0.8), 1300), base);
+  const lineH = size * (rtl ? 1.5 : 1.2) + (look === 'marker' ? size * 0.25 : 0);
   const top = cy - ((lines.length - 1) * lineH) / 2;
+  const nudge = rtl ? size * 0.08 : 0; // Kufi sits a little high on the middle baseline
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.direction = rtl ? 'rtl' : 'ltr';
   ctx.font = font(size);
   ctx.lineJoin = 'round';
-  ctx.lineWidth = size * 0.12;
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.shadowColor = 'rgba(0,0,0,0.55)';
-  ctx.shadowBlur = size * 0.4;
-  ctx.fillStyle = '#fff';
-  lines.forEach((l, i) => {
-    ctx.strokeText(l, W / 2, top + i * lineH);
-    ctx.fillText(l, W / 2, top + i * lineH);
-  });
+  const padX = size * 0.5;
+  const padY = size * 0.32;
+  let bottom = top + (lines.length - 1) * lineH + size * 0.6;
+
+  if (look === 'box') {
+    // One white card behind the whole headline, like a native TikTok caption.
+    const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + padX * 2;
+    const h = (lines.length - 1) * lineH + size + padY * 2;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = size * 0.5;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.roundRect(W / 2 - w / 2, top - size / 2 - padY, w, h, size * 0.35);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#111';
+    lines.forEach((l, i) => ctx.fillText(l, W / 2, top + i * lineH + nudge));
+    bottom = top - size / 2 - padY + h;
+  } else if (look === 'marker') {
+    // A highlighter swipe behind each line on its own.
+    lines.forEach((l, i) => {
+      const w = ctx.measureText(l).width + padX * 1.4;
+      const y = top + i * lineH;
+      ctx.fillStyle = style.accentColor;
+      ctx.beginPath();
+      ctx.roundRect(W / 2 - w / 2, y - size * 0.62, w, size * 1.24, size * 0.18);
+      ctx.fill();
+      ctx.fillStyle = inkOn(style.accentColor);
+      ctx.fillText(l, W / 2, y + nudge);
+    });
+    bottom = top + (lines.length - 1) * lineH + size * 0.62;
+  } else if (look === 'glow') {
+    // Neon: a white-hot core with stacked accent halos around it.
+    ctx.fillStyle = style.accentColor;
+    ctx.shadowColor = style.accentColor;
+    for (const blur of [size * 1.2, size * 0.6, size * 0.25]) {
+      ctx.shadowBlur = blur;
+      lines.forEach((l, i) => ctx.fillText(l, W / 2, top + i * lineH));
+    }
+    ctx.shadowBlur = size * 0.12;
+    ctx.fillStyle = '#fffdf5';
+    ctx.lineWidth = size * 0.05;
+    ctx.strokeStyle = style.accentColor;
+    lines.forEach((l, i) => {
+      ctx.strokeText(l, W / 2, top + i * lineH);
+      ctx.fillText(l, W / 2, top + i * lineH);
+    });
+  } else if (look === 'outline') {
+    // Thick black stroke, the classic Shorts meme caption.
+    ctx.lineWidth = size * 0.2;
+    ctx.strokeStyle = '#000';
+    ctx.fillStyle = '#fff';
+    lines.forEach((l, i) => {
+      ctx.strokeText(l, W / 2, top + i * lineH);
+      ctx.fillText(l, W / 2, top + i * lineH);
+    });
+  } else {
+    // Plain white with a soft outline so it reads on any footage.
+    ctx.lineWidth = size * 0.12;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = size * 0.4;
+    ctx.fillStyle = '#fff';
+    lines.forEach((l, i) => {
+      ctx.strokeText(l, W / 2, top + i * lineH);
+      ctx.fillText(l, W / 2, top + i * lineH);
+    });
+  }
   ctx.restore();
-  return top + (lines.length - 1) * lineH + size * 0.6;
+  return bottom;
 }
 
 // Slim progress bar with a small "23s / 60s" under it; the bar fills right-to-left.
@@ -103,7 +176,7 @@ export const challenge: Template = {
     const tall = H / W > 1.5;
 
     const hookBottom = drawHook(f, H * (wide ? 0.3 : tall ? 0.4 : 0.33), u);
-    drawCounter(f, hookBottom + u * 0.03, u);
+    drawCounter(f, hookBottom + u * (style.hookStyle === 'box' || style.hookStyle === 'marker' ? 0.045 : 0.03), u);
 
     // Captions live in the lower part; a soft gradient keeps them legible on busy footage.
     const capTop = H * (wide ? 0.6 : tall ? 0.63 : 0.6);

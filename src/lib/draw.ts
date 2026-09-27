@@ -3,6 +3,7 @@ import type { Segment, Timeline } from './timeline';
 
 export type Format = '9:16' | '4:5' | '1:1' | '16:9';
 export type TextAnimation = 'fade' | 'slide' | 'zoom' | 'reveal';
+export type HookStyle = 'plain' | 'box' | 'marker' | 'glow' | 'outline';
 
 export const FORMATS: Record<Format, { w: number; h: number; hint: string }> = {
   '9:16': { w: 1080, h: 1920, hint: 'Reels, TikTok, Shorts' },
@@ -34,6 +35,7 @@ export interface Style {
   kenBurns: boolean; // slow zoom and drift on the background
   template: string; // id of the layout template (see templates/index.ts)
   hook: string; // headline some templates show above the verse
+  hookStyle: HookStyle; // how that headline is drawn
 }
 
 /** One drawable background source; several layers crossfade in multi-clip mode. */
