@@ -23,7 +23,7 @@ button, input, select { font: inherit; color: inherit; }
 
 .app {
   display: grid;
-  grid-template-columns: 420px 1fr;
+  grid-template-columns: 480px 1fr;
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
@@ -459,7 +459,7 @@ input[type='range'] { width: 100%; accent-color: var(--gilt); }
   z-index: 10;
 }
 .dialog {
-  width: min(420px, 100%);
+  width: min(480px, 100%);
   background: var(--binding);
   border: 1px solid var(--gilt-soft);
   border-radius: var(--radius-md);
